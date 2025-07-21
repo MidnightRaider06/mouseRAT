@@ -2,11 +2,11 @@
 #include <WinSock2.h>
 #include <WS2tcpip.h>
 #include <iostream>
+#include <cstring>
 
 using namespace std;
 
 int main() {
-	cout << "Doing things in Visual Studio" << endl;
 
 	const wchar_t* SERVER_IP = L"192.168.100.6";
 	const int SERVER_PORT = 5555;
@@ -54,8 +54,34 @@ int main() {
 		cout << "Client: Can start sending and receiving data…" << endl;
 	}
 
+	char sendBuffer[200] = "\n";
+	char receiveBuffer[200] = "\n";
+	int byteCount = 0;
+
+	while (true) {
+		//RECEIVE DATA FROM SERVER
+		byteCount = recv(clientSocket, receiveBuffer, 199, 0);
+		if (byteCount <= 0) {
+			printf("Client: recv failed or connection closed, error: %ld.\n", WSAGetLastError());
+			break;
+		}
+		
+		receiveBuffer[byteCount] = '\0';
+		printf("Received data : %s \n", receiveBuffer);
+
+		//SEND DATA TO SERVER (same as received message for now, will be replaced with command output)
+		strcpy_s(sendBuffer, receiveBuffer);
+		byteCount = send(clientSocket, sendBuffer, strlen(sendBuffer), 0);
+		if (byteCount == SOCKET_ERROR) {
+			printf("Client: send failed, error %ld.\n", WSAGetLastError());
+			break;
+		}
+		
+		printf("Sent data : %s \n", sendBuffer);
+	}
+	
+
+
 	closesocket(clientSocket);
 	WSACleanup();
-
-	
 }
