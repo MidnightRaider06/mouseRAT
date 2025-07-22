@@ -1,57 +1,60 @@
 #include <iostream>
-#include <cstring>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <unistd.h>
-#include <arpa/inet.h> 
+#include "TCPServer.h"
 
 using namespace std;
 
 int main() {
-    int serverSocket = socket(AF_INET, SOCK_STREAM, 0);
-    if (serverSocket < 0) {
-        cout << "Unable to open socket" << endl;
-        return(EXIT_FAILURE);
-    } else {
-        cout << "socket " << serverSocket << " opened!" << endl;
+
+    TCPServer *server = new TCPServer(5555);
+
+    if (!server->bindSocket()) return -1;
+    if (!server->listenSocket()) return -1;
+
+    int clientSocket = server->acceptConnection();
+
+    char sendBuffer[200] = "\n";
+    char receiveBuffer[200] = "\n";
+    int byteCount = 0;
+
+    if (clientSocket >= 0) {
+
+        // Write/read loop to clientSocket
+        while (strcmp(sendBuffer, "quit") != 0) {
+
+            //SEND
+            printf("Enter your message: ");
+            cin.getline(sendBuffer, 200);
+            byteCount = send(clientSocket, sendBuffer, 200, 0);
+            if (byteCount < 200) {
+                cout << "Server: error sending data" << endl;
+                return -1;
+            } else {
+                cout << "Server: sent " << byteCount << " bytes" << endl;
+            }
+
+            //RECEIVE
+            byteCount = recv(clientSocket, receiveBuffer, 200, 0);
+            if (byteCount <= 0) {
+                cout << "Server: error receiving data or connection closed" << endl;
+                return -1;
+            } else {
+                receiveBuffer[byteCount] = '\0';
+
+                cout << "Received data from "
+          << server->getClientIP() << ":"
+          << server->getClientPort()
+          << " : " << receiveBuffer << endl;
+            }
+
+        }
+        
+        shutdown(clientSocket, SHUT_RDWR);
+        close(clientSocket);
     }
 
-    sockaddr_in service;
-    memset(&service, 0, sizeof(service));
-    service.sin_family = AF_INET;
-    int port = 5555;
-    service.sin_port = htons(port);
-    service.sin_addr.s_addr = INADDR_ANY;
+    // serverSocket will be closed in the destructor
+    return 0;
 
-    if (bind(serverSocket, (struct sockaddr*)&service, sizeof(service)) < 0) {
-        cout << "bind() failed" << endl;
-        shutdown(serverSocket, SHUT_RDWR);
-        return 0;
-    } else {
-        cout << "bind() is OK!" << endl;
-    }
-
-    if (listen(serverSocket, 1) < 0) {
-        cout << "listen() failed" << endl;
-        shutdown(serverSocket, SHUT_RDWR);
-        return 0;
-    } else {
-        cout << "listen() is OK, I'm waiting for connections…" << endl;
-    }
-
-    int acceptSocket = accept(serverSocket, NULL, NULL);
-    if (acceptSocket < 0) {
-        cout << "accept() failed" << endl;
-        shutdown(serverSocket, SHUT_RDWR);
-        return -1;
-    } else {
-        cout << "accept() is OK!" << endl;
-    }
-
-    // Close sockets after use
-    shutdown(acceptSocket, SHUT_RDWR);
-    shutdown(serverSocket, SHUT_RDWR);
 
     return 0;
 }
