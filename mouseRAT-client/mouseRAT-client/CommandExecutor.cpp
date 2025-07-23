@@ -1,4 +1,5 @@
 #include "CommandExecutor.h"
+#include <sstream>
 
 using namespace std;
 
@@ -62,11 +63,13 @@ int CommandExecutor::startTerminal() {
         cout << "Failed to create process. Error: " << GetLastError() << endl;
         return 1; // Error creating process
     }
+
+    cout << "cmd.exe started with PID: " << pi.dwProcessId << endl;
+    Sleep(100);
+
     // Close handles that are not needed in the parent process
     CloseHandle(pi.hProcess);
     CloseHandle(pi.hThread);
-    CloseHandle(hStdinRead);
-    CloseHandle(hStdoutWrite);
 
     cout << "Command terminal started successfully." << endl;
     return 0; // Success
@@ -77,9 +80,6 @@ int CommandExecutor::closePipes() {
     const char* exitCommand = "exit\n";
     DWORD bytesWritten;
     WriteFile(hStdinWrite, exitCommand, strlen(exitCommand), &bytesWritten, NULL);
-
-    //CloseHandle(pi.hProcess);
-    //CloseHandle(pi.hThread);
 
     if (hStdinRead) CloseHandle(hStdinRead);
     if (hStdinWrite) CloseHandle(hStdinWrite);
@@ -93,26 +93,74 @@ int CommandExecutor::closePipes() {
     return 0;
 }
 
-string CommandExecutor::executeCommand(const string& command) {
+string CommandExecutor::executeCommand(string command) {
     DWORD bytesWritten;
+
+	command += "\n"; // Make sure command is actually run
+	cout << "Command: " << command << endl;
     BOOL success = WriteFile(hStdinWrite, command.c_str(), command.length(), &bytesWritten, NULL);
     if (!success) {
         cout << "WriteFile failed. Error: " << GetLastError() << endl;
     }
-    //WriteFile(hStdinWrite, command.c_str(), command.length(), &bytesWritten, NULL);
-    //WriteFile(hStdinWrite, "\n", 1, &bytesWritten, NULL); // Send newline to execute the command
+    cout << "WriteFile succeeded. Bytes written: " << bytesWritten << endl;
+
+    Sleep(3000);
     char buffer[4096];
     DWORD bytesRead;
     string output;
+    bool firstRead = true;
     // Read the output from the command
     while (true) {
-        if (!ReadFile(hStdoutRead, buffer, sizeof(buffer) - 1, &bytesRead, NULL) || bytesRead == 0) {
-            break; // No more data to read
+        DWORD bytesAvailable = 0;
+        if (!PeekNamedPipe(hStdoutRead, NULL, 0, NULL, &bytesAvailable, NULL)) {
+            cout << "PeekNamedPipe failed. Error: " << GetLastError() << endl;
+            break;
         }
-        buffer[bytesRead] = '\0'; // Null-terminate the string
-        output += buffer; // Append to output
+
+        if (bytesAvailable == 0) {
+            Sleep(50);
+            continue;
+        }
+
+        if (!ReadFile(hStdoutRead, buffer, sizeof(buffer) - 1, &bytesRead, NULL) || bytesRead == 0) {
+            break;
+        }
+
+        buffer[bytesRead] = '\0';
+        output += buffer;
+
+        if (output.find("END") != string::npos) {
+            break;
+        }
     }
-    return output; // Return the command output
+
+    // Process output
+    istringstream ss(output);
+    string line;
+    string finalOutput;
+
+    if (firstRead) {
+        while (getline(ss, line)) {
+            // Skip lines containing Windows version info or copyright
+            if (line.find("Microsoft Windows") != string::npos) continue;
+            if (line.find("(c) Microsoft Corporation") != string::npos) continue;
+            if (line.empty()) continue; // skip blank line after banner
+
+            finalOutput += line + "\n";
+        }
+        firstRead = false;
+    }
+    else {
+        while (getline(ss, line)) {
+
+            // Skip prompt lines like "C:\Users\abhinav>"
+            if (line.find(":\\") != string::npos && line.find(">") != string::npos) continue;
+
+            finalOutput += line + "\n";
+        }
+    }
+
+    return finalOutput;
 }
 
 CommandExecutor::~CommandExecutor() {

@@ -20,6 +20,6 @@ public:
 	int initPipes();
 	int closePipes();
 	int startTerminal();
-	string executeCommand(const string& command);
+	string executeCommand(string command);
 };
 
