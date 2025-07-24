@@ -22,7 +22,7 @@ int main() {
         while (strcmp(sendBuffer, "quit") != 0) {
 
             //SEND
-            printf("Enter your message: ");
+            cout << "\033[31m" << "Enter your command: " << "\033[0m";
             cin.getline(sendBuffer, 200);
             byteCount = send(clientSocket, sendBuffer, strlen(sendBuffer), 0);
             if (byteCount < 0) {
@@ -43,7 +43,7 @@ int main() {
                 cout << "Received data from "
           << server->getClientIP() << ":"
           << server->getClientPort()
-          << " : " << receiveBuffer << endl;
+          << " : " << "\033[32m" << receiveBuffer << "\033[0m" << endl;
             }
 
         }
@@ -55,6 +55,4 @@ int main() {
     // serverSocket will be closed in the destructor
     return 0;
 
-
-    return 0;
 }
