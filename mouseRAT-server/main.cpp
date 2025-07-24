@@ -12,18 +12,35 @@ int main() {
 
     int clientSocket = server->acceptConnection();
 
+    // string to append
+    const char *endMarker = " & echo ### END OF OUTPUT ###";
+
+
     char sendBuffer[200] = "\n";
     char receiveBuffer[4096] = "\n";
     int byteCount = 0;
 
+    char quitCommand[200];
+    strcpy(quitCommand, "quit");
+    strncat(quitCommand, endMarker, sizeof(quitCommand) - strlen(quitCommand) - 1);
+
+
     if (clientSocket >= 0) {
 
+        cout << "\033[31m" << "Enter your command: " << "\033[0m";
+        cin.getline(sendBuffer, 200);
+
+        // calculate how much space is left
+        size_t len = strlen(sendBuffer);
+        size_t remaining = 200 - len - 1; // leave space for null terminator
+
+        // append safely
+        strncat(sendBuffer, endMarker, remaining);
+
         // Write/read loop to clientSocket
-        while (strcmp(sendBuffer, "quit") != 0) {
+        while (strcmp(sendBuffer, quitCommand) != 0) {
 
             //SEND
-            cout << "\033[31m" << "Enter your command: " << "\033[0m";
-            cin.getline(sendBuffer, 200);
             byteCount = send(clientSocket, sendBuffer, strlen(sendBuffer), 0);
             if (byteCount < 0) {
                 cout << "Server: error sending data" << endl;
@@ -46,6 +63,12 @@ int main() {
           << " : " << "\033[32m" << receiveBuffer << "\033[0m" << endl;
             }
 
+            //PROMPT FOR COMMAND AGAIN
+            cout << "\033[31m" << "Enter your command: " << "\033[0m";
+            cin.getline(sendBuffer, 200);
+            size_t len = strlen(sendBuffer);
+            size_t remaining = 200 - len - 1; // leave space for null terminator
+            strncat(sendBuffer, endMarker, remaining);
         }
         
         shutdown(clientSocket, SHUT_RDWR);
