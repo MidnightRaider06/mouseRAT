@@ -45,15 +45,12 @@ int main() {
 	clientService.sin_port = htons(SERVER_PORT);
 
 	// Will wait 75 seconds for server to respond.
-	if (connect(clientSocket, (SOCKADDR*)&clientService, sizeof(clientService)) == SOCKET_ERROR) {
+	while (connect(clientSocket, (SOCKADDR*)&clientService, sizeof(clientService)) != 0) {
 		cout << "Client: connect() failed to connect." << endl;
-		WSACleanup();
-		return 0;
+		Sleep(5000);
 	}
-	else {
-		cout << "Client: connect() is OK." << endl;
-		cout << "Client: Can start sending and receiving data…" << endl;
-	}
+	cout << "Client: connect() is OK." << endl;
+	cout << "Client: Can start sending and receiving data…" << endl;
 
 	char sendBuffer[4096] = "\n"; // Buffer to hold data to send to the server
 	char receiveBuffer[200] = "\n"; // Buffer to hold commands received from the server

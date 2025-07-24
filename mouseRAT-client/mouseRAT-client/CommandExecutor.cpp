@@ -109,6 +109,7 @@ string CommandExecutor::executeCommand(string command) {
     DWORD bytesRead;
     string output;
     bool firstRead = true;
+
     // Read the output from the command
     while (true) {
         DWORD bytesAvailable = 0;
@@ -129,7 +130,7 @@ string CommandExecutor::executeCommand(string command) {
         buffer[bytesRead] = '\0';
         output += buffer;
 
-        if (output.find("END") != string::npos) {
+        if (output.find("### END OF OUTPUT ###") != string::npos) {
             break;
         }
     }
@@ -145,6 +146,7 @@ string CommandExecutor::executeCommand(string command) {
             if (line.find("Microsoft Windows") != string::npos) continue;
             if (line.find("(c) Microsoft Corporation") != string::npos) continue;
             if (line.empty()) continue; // skip blank line after banner
+            if (line.find(":\\") != string::npos && line.find(">") != string::npos) continue;
 
             finalOutput += line + "\n";
         }
