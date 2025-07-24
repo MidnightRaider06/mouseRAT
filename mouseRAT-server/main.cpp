@@ -13,7 +13,7 @@ int main() {
     int clientSocket = server->acceptConnection();
 
     char sendBuffer[200] = "\n";
-    char receiveBuffer[200] = "\n";
+    char receiveBuffer[4096] = "\n";
     int byteCount = 0;
 
     if (clientSocket >= 0) {
@@ -24,8 +24,8 @@ int main() {
             //SEND
             printf("Enter your message: ");
             cin.getline(sendBuffer, 200);
-            byteCount = send(clientSocket, sendBuffer, 200, 0);
-            if (byteCount < 200) {
+            byteCount = send(clientSocket, sendBuffer, strlen(sendBuffer), 0);
+            if (byteCount < 0) {
                 cout << "Server: error sending data" << endl;
                 return -1;
             } else {
@@ -33,7 +33,7 @@ int main() {
             }
 
             //RECEIVE
-            byteCount = recv(clientSocket, receiveBuffer, 200, 0);
+            byteCount = recv(clientSocket, receiveBuffer, 4096, 0);
             if (byteCount <= 0) {
                 cout << "Server: error receiving data or connection closed" << endl;
                 return -1;
