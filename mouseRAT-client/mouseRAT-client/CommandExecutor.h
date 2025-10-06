@@ -21,5 +21,6 @@ public:
 	int closePipes();
 	int startTerminal();
 	string executeCommand(string command);
+	string captureScreenshotAndEncode();
 };
 

