@@ -1,6 +1,7 @@
 // TCPServer.h
 #pragma once
 
+#include "UniqueFd.h"
 #include <iostream>
 #include <cstring>
 #include <sys/types.h>
@@ -11,20 +12,19 @@
 
 class TCPServer {
 private:
-    int serverSocket;
+    UniqueFd serverSocket;
     int port;
     sockaddr_in service;
 
     std::string clientIP;
-    int clientPort;
+    int clientPort = 0;
 
 public:
     TCPServer(int portNumber);
-    ~TCPServer();
+    ~TCPServer() = default;
     bool bindSocket();
     bool listenSocket();
-    int acceptConnection();
-    void closeSocket();
+    UniqueFd acceptConnection();
     std::string getClientIP();
     int getClientPort();
 };

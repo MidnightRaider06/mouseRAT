@@ -1,14 +1,14 @@
 // TCPServer.cpp
 #include "TCPServer.h"
-#include <sstream>
+#include <cerrno>
+#include <system_error>
 
-TCPServer::TCPServer(int portNumber) : port(portNumber) {
-    serverSocket = socket(AF_INET, SOCK_STREAM, 0);
-    if (serverSocket < 0) {
-        std::cerr << "Unable to open socket" << std::endl;
-        exit(EXIT_FAILURE);
+TCPServer::TCPServer(int portNumber)
+    : serverSocket(socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0)), port(portNumber) {
+    if (serverSocket.get() < 0) {
+        throw std::system_error(errno, std::generic_category(), "socket");
     } else {
-        std::cout << "socket " << serverSocket << " opened!" << std::endl;
+        std::cout << "socket " << serverSocket.get() << " opened!" << std::endl;
     }
 
     memset(&service, 0, sizeof(service));
@@ -17,13 +17,10 @@ TCPServer::TCPServer(int portNumber) : port(portNumber) {
     service.sin_addr.s_addr = INADDR_ANY;
 }
 
-TCPServer::~TCPServer() {
-    closeSocket();
-}
 
 bool TCPServer::bindSocket() {
-    if (bind(serverSocket, (struct sockaddr*)&service, sizeof(service)) < 0) {
-        std::cerr << "bind() failed" << std::endl;
+    if (bind(serverSocket.get(), (struct sockaddr*)&service, sizeof(service)) < 0) {
+        std::cerr << "bind() failed: " << std::strerror(errno) << std::endl;
         return false;
     }
     std::cout << "bind() is OK!" << std::endl;
@@ -31,50 +28,35 @@ bool TCPServer::bindSocket() {
 }
 
 bool TCPServer::listenSocket() {
-    if (listen(serverSocket, 5) < 0) {
-        std::cerr << "listen() failed" << std::endl;
+    if (listen(serverSocket.get(), 5) < 0) {
+        std::cerr << "listen() failed: " << std::strerror(errno) << std::endl;
         return false;
     }
     std::cout << "listen() is OK, waiting for connections…" << std::endl;
     return true;
 }
 
-#include <sstream> // For stringstream if needed
-
-int TCPServer::acceptConnection() {
-    sockaddr_in clientAddr;
+UniqueFd TCPServer::acceptConnection() {
+    sockaddr_in clientAddr{};
     socklen_t clientLen = sizeof(clientAddr);
-
-    int acceptSocket = accept(serverSocket, (struct sockaddr*)&clientAddr, &clientLen);
-    if (acceptSocket < 0) {
-        std::cerr << "accept() failed" << std::endl;
-    } else {
-        char ipStr[INET_ADDRSTRLEN];
-        inet_ntop(AF_INET, &clientAddr.sin_addr, ipStr, INET_ADDRSTRLEN);
-        clientIP = ipStr; // store in class member variable
-        clientPort = ntohs(clientAddr.sin_port); // store in class member variable
-
-        std::cout << "accept() is OK! Connection from: "
-                  << clientIP << ":" << clientPort << std::endl;
+    int fd;
+    do {
+        fd = accept4(serverSocket.get(), reinterpret_cast<sockaddr*>(&clientAddr),
+                     &clientLen, SOCK_CLOEXEC);
+    } while (fd < 0 && errno == EINTR);
+    UniqueFd accepted(fd);
+    if (fd < 0) {
+        throw std::system_error(errno, std::generic_category(), "accept4");
     }
-    return acceptSocket;
-}
-
-
-void TCPServer::closeSocket() {
-    if (serverSocket >= 0) {
-        shutdown(serverSocket, SHUT_RDWR);
-        close(serverSocket);
-        serverSocket = -1;
-        std::cout << "Socket closed." << std::endl;
+    char ipStr[INET_ADDRSTRLEN]{};
+    if (!inet_ntop(AF_INET, &clientAddr.sin_addr, ipStr, sizeof(ipStr))) {
+        throw std::system_error(errno, std::generic_category(), "inet_ntop");
     }
+    clientIP = ipStr;
+    clientPort = ntohs(clientAddr.sin_port);
+    std::cout << "Connection from " << clientIP << ':' << clientPort << std::endl;
+    return accepted;
 }
 
-
-std::string TCPServer::getClientIP() {
-    return clientIP;
-}
-
-int TCPServer::getClientPort() {
-    return clientPort;
-}
+std::string TCPServer::getClientIP() { return clientIP; }
+int TCPServer::getClientPort() { return clientPort; }
