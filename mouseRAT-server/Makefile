@@ -14,7 +14,7 @@ run: build
 
 build: $(OUTPUT)
 
-$(OUTPUT): $(SERVER_FILES) TCPServer.h UniqueFd.h
+$(OUTPUT): $(SERVER_FILES) TCPServer.h UniqueFd.h Connection.h
 	$(CC) $(CFLAGS) $(SERVER_FILES) -o $(OUTPUT)
 
 clean:

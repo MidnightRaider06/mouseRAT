@@ -32,7 +32,7 @@ int main() {
             command.append(marker);
             std::size_t offset = 0;
             while (offset < command.size()) {
-                const auto sent = send(client.get(), command.data() + offset,
+                const auto sent = send(client.socket.get(), command.data() + offset,
                                        command.size() - offset, MSG_NOSIGNAL);
                 if (sent < 0 && errno == EINTR) continue;
                 if (sent < 0) throw std::system_error(errno, std::generic_category(), "send");
@@ -41,7 +41,7 @@ int main() {
             }
             ssize_t received;
             do {
-                received = recv(client.get(), response.data(), response.size(), 0);
+                received = recv(client.socket.get(), response.data(), response.size(), 0);
             } while (received < 0 && errno == EINTR);
             if (received < 0) throw std::system_error(errno, std::generic_category(), "recv");
             if (received == 0) {

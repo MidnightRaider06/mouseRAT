@@ -19,6 +19,12 @@ TCPServer::TCPServer(int portNumber)
 
 
 bool TCPServer::bindSocket() {
+    const int reuseAddress = 1;
+    if (setsockopt(serverSocket.get(), SOL_SOCKET, SO_REUSEADDR,
+                   &reuseAddress, sizeof(reuseAddress)) < 0) {
+        std::cerr << "setsockopt(SO_REUSEADDR) failed: " << std::strerror(errno) << std::endl;
+        return false;
+    }
     if (bind(serverSocket.get(), (struct sockaddr*)&service, sizeof(service)) < 0) {
         std::cerr << "bind() failed: " << std::strerror(errno) << std::endl;
         return false;
@@ -36,7 +42,7 @@ bool TCPServer::listenSocket() {
     return true;
 }
 
-UniqueFd TCPServer::acceptConnection() {
+Connection TCPServer::acceptConnection() {
     sockaddr_in clientAddr{};
     socklen_t clientLen = sizeof(clientAddr);
     int fd;
@@ -52,11 +58,6 @@ UniqueFd TCPServer::acceptConnection() {
     if (!inet_ntop(AF_INET, &clientAddr.sin_addr, ipStr, sizeof(ipStr))) {
         throw std::system_error(errno, std::generic_category(), "inet_ntop");
     }
-    clientIP = ipStr;
-    clientPort = ntohs(clientAddr.sin_port);
-    std::cout << "Connection from " << clientIP << ':' << clientPort << std::endl;
-    return accepted;
+    std::cout << "Connection from " << ipStr << ':' << ntohs(clientAddr.sin_port) << std::endl;
+    return Connection{std::move(accepted), clientAddr};
 }
-
-std::string TCPServer::getClientIP() { return clientIP; }
-int TCPServer::getClientPort() { return clientPort; }

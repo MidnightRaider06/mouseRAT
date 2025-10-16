@@ -1,7 +1,7 @@
 // TCPServer.h
 #pragma once
 
-#include "UniqueFd.h"
+#include "Connection.h"
 #include <iostream>
 #include <cstring>
 #include <sys/types.h>
@@ -16,15 +16,10 @@ private:
     int port;
     sockaddr_in service;
 
-    std::string clientIP;
-    int clientPort = 0;
-
 public:
     TCPServer(int portNumber);
     ~TCPServer() = default;
     bool bindSocket();
     bool listenSocket();
-    UniqueFd acceptConnection();
-    std::string getClientIP();
-    int getClientPort();
+    Connection acceptConnection();
 };
