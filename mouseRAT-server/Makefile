@@ -5,7 +5,11 @@ CFLAGS = -std=c++17 -Wall -Wextra -Wpedantic -g
 
 OUTPUT = server.exe
 
+.PHONY: default build run clean
+
 default: build
+
+run: build
 	./$(OUTPUT)
 
 build: $(SERVER_FILES) TCPServer.h UniqueFd.h
