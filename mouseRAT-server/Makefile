@@ -12,7 +12,9 @@ default: build
 run: build
 	./$(OUTPUT)
 
-build: $(SERVER_FILES) TCPServer.h UniqueFd.h
+build: $(OUTPUT)
+
+$(OUTPUT): $(SERVER_FILES) TCPServer.h UniqueFd.h
 	$(CC) $(CFLAGS) $(SERVER_FILES) -o $(OUTPUT)
 
 clean:
