@@ -2,6 +2,7 @@
 #pragma once
 
 #include "Connection.h"
+#include <optional>
 #include <iostream>
 #include <cstring>
 #include <sys/types.h>
@@ -21,5 +22,6 @@ public:
     ~TCPServer() = default;
     bool bindSocket();
     bool listenSocket();
-    Connection acceptConnection();
+    [[nodiscard]] int descriptor() const noexcept { return serverSocket.get(); }
+    std::optional<Connection> acceptConnection();
 };

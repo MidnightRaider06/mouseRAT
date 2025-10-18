@@ -6,12 +6,33 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <sys/epoll.h>
 
 int main() {
     try {
         TCPServer server(5555);
         if (!server.bindSocket() || !server.listenSocket()) return 1;
-        auto client = server.acceptConnection();
+        UniqueFd poller(epoll_create1(EPOLL_CLOEXEC));
+        if (poller.get() < 0) {
+            throw std::system_error(errno, std::generic_category(), "epoll_create1");
+        }
+        epoll_event interest{};
+        interest.events = EPOLLIN;
+        interest.data.fd = server.descriptor();
+        if (epoll_ctl(poller.get(), EPOLL_CTL_ADD, server.descriptor(), &interest) < 0) {
+            throw std::system_error(errno, std::generic_category(), "epoll_ctl ADD listener");
+        }
+        std::optional<Connection> pending;
+        while (!pending) {
+            epoll_event ready{};
+            const int count = epoll_wait(poller.get(), &ready, 1, -1);
+            if (count < 0 && errno == EINTR) continue;
+            if (count < 0) {
+                throw std::system_error(errno, std::generic_category(), "epoll_wait");
+            }
+            pending = server.acceptConnection();
+        }
+        auto client = std::move(*pending);
         constexpr std::string_view marker = " & echo ### END OF OUTPUT ###";
         // Right now the Windows client reads at most 199 command bytes.
         constexpr std::size_t maxWireCommand = 199;

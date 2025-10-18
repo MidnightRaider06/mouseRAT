@@ -4,7 +4,7 @@
 #include <system_error>
 
 TCPServer::TCPServer(int portNumber)
-    : serverSocket(socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0)), port(portNumber) {
+    : serverSocket(socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0)), port(portNumber) {
     if (serverSocket.get() < 0) {
         throw std::system_error(errno, std::generic_category(), "socket");
     } else {
@@ -42,7 +42,7 @@ bool TCPServer::listenSocket() {
     return true;
 }
 
-Connection TCPServer::acceptConnection() {
+std::optional<Connection> TCPServer::acceptConnection() {
     sockaddr_in clientAddr{};
     socklen_t clientLen = sizeof(clientAddr);
     int fd;
@@ -50,6 +50,9 @@ Connection TCPServer::acceptConnection() {
         fd = accept4(serverSocket.get(), reinterpret_cast<sockaddr*>(&clientAddr),
                      &clientLen, SOCK_CLOEXEC);
     } while (fd < 0 && errno == EINTR);
+    if (fd < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+        return std::nullopt;
+    }
     UniqueFd accepted(fd);
     if (fd < 0) {
         throw std::system_error(errno, std::generic_category(), "accept4");
