@@ -52,7 +52,7 @@ std::optional<Connection> TCPServer::acceptConnection() {
 
     do {
         fd = accept4(serverSocket.get(), reinterpret_cast<sockaddr*>(&clientAddr),
-                     &clientLen, SOCK_CLOEXEC);
+                     &clientLen, SOCK_CLOEXEC | SOCK_NONBLOCK);
     } while (fd < 0 && errno == EINTR);
 
     if (fd < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
