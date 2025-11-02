@@ -1,9 +1,10 @@
 # Binary protocol v1
 
 Status: implementation contract for upcoming server and Windows client changes.
-Header encoding and structural validation exist in `Protocol.h` and `Protocol.cpp`.
-Both running endpoints still use the legacy text protocol. Switching requires
-updating both endpoints, with no text fallback.
+Header encoding and structural validation exist in `Protocol.h` and `Protocol.cpp`,
+with incremental frame assembly in `FrameDecoder.h` and `FrameDecoder.cpp`. Both
+running endpoints still use the legacy text protocol. Switching requires updating
+both endpoints, with no text fallback.
 
 ## Frame header
 
