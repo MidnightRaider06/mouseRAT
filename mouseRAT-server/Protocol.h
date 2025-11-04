@@ -25,6 +25,11 @@ enum class MessageType : std::uint8_t {
     Error = 0x7f,
 };
 
+enum class ImageFormat : std::uint32_t {
+    Png = 1,
+    Bmp = 2,
+};
+
 struct Header {
     MessageType type;
     std::uint32_t payloadLength;
