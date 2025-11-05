@@ -16,6 +16,7 @@ private:
     void watch(int operation, int fd, std::uint32_t events, std::uint64_t id);
     void acceptReady();
     void clientReady(std::uint64_t id, std::uint32_t events);
+    bool processFrame(std::uint64_t id, Connection& client, const protocol::FrameView& frame);
     void readConsole();
     void handleCommand(std::string_view command);
     void disconnect(std::uint64_t id);
@@ -27,7 +28,7 @@ private:
     std::uint64_t selectedId_ = 0;
     bool running_ = true;
 
-    std::array<char, 199> line_{};
+    std::array<char, 4096> line_{};
     std::size_t lineSize_ = 0;
     bool discardLine_ = false;
 };

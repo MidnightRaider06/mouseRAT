@@ -1,6 +1,5 @@
 #include "ServerLoop.h"
 
-#include <algorithm>
 #include <cerrno>
 #include <charconv>
 #include <fcntl.h>
@@ -13,7 +12,12 @@ namespace {
 constexpr std::uint64_t listenerId = 0;
 constexpr std::uint64_t consoleId = std::numeric_limits<std::uint64_t>::max();
 constexpr std::size_t maxClients = 64;
-constexpr std::string_view marker = " & echo ### END OF OUTPUT ###";
+
+std::uint32_t readStatus(std::string_view payload) noexcept {
+    std::uint32_t value = 0;
+    for (unsigned char byte : payload.substr(0, 4)) value = (value << 8) | byte;
+    return value;
+}
 
 class ConsoleMode {
 public:
@@ -90,6 +94,11 @@ void ServerLoop::acceptReady() {
 }
 
 void ServerLoop::disconnect(std::uint64_t id) {
+    const auto found = clients_.find(id);
+    if (found != clients_.end() && found->second.requests.activeId() != 0) {
+        std::cerr << "[client " << id << " request " << found->second.requests.activeId()
+                  << "] interrupted" << std::endl;
+    }
     clients_.erase(id);
     if (selectedId_ == id) selectedId_ = 0;
     std::cout << "[client " << id << "] disconnected" << std::endl;
@@ -99,6 +108,7 @@ void ServerLoop::clientReady(std::uint64_t id, std::uint32_t events) {
     auto found = clients_.find(id);
     if (found == clients_.end()) return;
     auto& client = found->second;
+    const bool hadPending = !client.outbound.empty();
 
     if (events & (EPOLLIN | EPOLLRDHUP | EPOLLHUP | EPOLLERR)) {
         std::array<char, 4096> response{};
@@ -108,36 +118,76 @@ void ServerLoop::clientReady(std::uint64_t id, std::uint32_t events) {
         } while (received < 0 && errno == EINTR);
 
         if (received > 0) {
-            std::cout << "[client " << id << "] ";
-            std::cout.write(response.data(), received);
-            std::cout << std::flush;
-
-            // The legacy protocol has no reliable response boundary
-            if (client.bytesSent == client.outboundSize) {
-                client.outboundSize = 0;
-                client.bytesSent = 0;
+            std::string_view input(response.data(), static_cast<std::size_t>(received));
+            while (!input.empty()) {
+                const auto step = client.decoder.consume(input);
+                input.remove_prefix(step.consumed);
+                const auto frame = std::get_if<protocol::FrameView>(&step.result);
+                if (std::holds_alternative<protocol::HeaderError>(step.result) ||
+                    (frame && !processFrame(id, client, *frame))) {
+                    std::cerr << "[client " << id << "] protocol violation" << std::endl;
+                    disconnect(id);
+                    return;
+                }
+                if (!frame) break;
             }
         } else if (received == 0 || (errno != EAGAIN && errno != EWOULDBLOCK) ||
                    (events & (EPOLLHUP | EPOLLERR))) {
+            if (client.decoder.hasPartialFrame()) {
+                std::cerr << "[client " << id << "] truncated frame" << std::endl;
+            }
             disconnect(id);
             return;
         }
     }
 
-    if ((events & EPOLLOUT) && client.bytesSent < client.outboundSize) {
-        const auto sent = send(client.socket.get(), client.outbound.data() + client.bytesSent,
-                               client.outboundSize - client.bytesSent, MSG_NOSIGNAL);
-        if (sent < 0 && (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)) return;
-        if (sent <= 0) {
+    if ((events & EPOLLOUT) && !client.outbound.empty()) {
+        const auto pending = client.outbound.pending();
+        const auto sent = send(client.socket.get(), pending.data(), pending.size(), MSG_NOSIGNAL);
+        if (sent > 0) {
+            client.outbound.advance(static_cast<std::size_t>(sent));
+        } else if (sent == 0 || (errno != EINTR && errno != EAGAIN && errno != EWOULDBLOCK)) {
             disconnect(id);
             return;
         }
-
-        client.bytesSent += static_cast<std::size_t>(sent);
-        if (client.bytesSent == client.outboundSize) {
-            watch(EPOLL_CTL_MOD, client.socket.get(), EPOLLIN | EPOLLRDHUP, id);
-        }
     }
+
+    if (hadPending != !client.outbound.empty()) {
+        watch(EPOLL_CTL_MOD, client.socket.get(), EPOLLIN | EPOLLRDHUP |
+              (client.outbound.empty() ? 0u : EPOLLOUT), id);
+    }
+}
+
+bool ServerLoop::processFrame(std::uint64_t id, Connection& client, const protocol::FrameView& frame) {
+    using protocol::MessageType;
+    if (!client.helloReceived) {
+        if (frame.header.type != MessageType::Hello) return false;
+        if (!client.outbound.enqueue({MessageType::HelloAck, 0, 0}, {})) return false;
+
+        client.helloReceived = true;
+        std::cout << "[client " << id << "] ready" << std::endl;
+        return true;
+    }
+
+    if (frame.header.type == MessageType::Ping) {
+        return client.outbound.enqueue({MessageType::Pong, 8, 0}, frame.payload);
+    }
+    if (frame.header.type != MessageType::Output && frame.header.type != MessageType::Complete &&
+        frame.header.type != MessageType::Error) return false;
+    if (client.requests.acceptResponse(frame)) return false;
+
+    std::cout << "[client " << id << " request " << frame.header.requestId << "] ";
+    if (frame.header.type == MessageType::Output) {
+        std::cout.write(frame.payload.data() + 1, frame.payload.size() - 1);
+        std::cout << std::flush;
+    } else if (frame.header.type == MessageType::Complete) {
+        std::cout << "complete (exit " << readStatus(frame.payload) << ')' << std::endl;
+    } else {
+        std::cout << "error " << readStatus(frame.payload) << ": ";
+        std::cout.write(frame.payload.data() + 4, frame.payload.size() - 4);
+        std::cout << std::endl;
+    }
+    return true;
 }
 
 void ServerLoop::readConsole() {
@@ -177,6 +227,7 @@ void ServerLoop::handleCommand(std::string_view command) {
             inet_ntop(AF_INET, &client.peerAddress.sin_addr, address, sizeof(address));
             std::cout << "[client " << id << "] " << address << ':'
                       << ntohs(client.peerAddress.sin_port)
+                      << (client.helloReceived ? " ready" : " awaiting HELLO")
                       << (id == selectedId_ ? " selected" : "") << std::endl;
         }
         return;
@@ -211,19 +262,33 @@ void ServerLoop::handleCommand(std::string_view command) {
     }
 
     auto& client = found->second;
-    if (command.size() > client.outbound.size() - marker.size() ||
-        command.find('\0') != std::string_view::npos) {
-        std::cerr << "Command exceeds the legacy limit or contains a NUL byte" << std::endl;
-        return;
-    }
-    if (client.outboundSize != 0) {
-        std::cerr << "Selected client still has a pending command" << std::endl;
+    if (!client.helloReceived) {
+        std::cerr << "Selected client is awaiting HELLO" << std::endl;
         return;
     }
 
-    std::copy(command.begin(), command.end(), client.outbound.begin());
-    std::copy(marker.begin(), marker.end(), client.outbound.begin() + command.size());
-    client.outboundSize = command.size() + marker.size();
-    client.bytesSent = 0;
-    watch(EPOLL_CTL_MOD, client.socket.get(), EPOLLIN | EPOLLRDHUP | EPOLLOUT, selectedId_);
+    const bool hadPending = !client.outbound.empty();
+    const auto queued = client.requests.queueCommand(client.outbound, command);
+    if (const auto error = std::get_if<protocol::RequestError>(&queued)) {
+        switch (*error) {
+        case protocol::RequestError::Busy:
+            std::cerr << "Selected client still has a pending command" << std::endl;
+            break;
+        case protocol::RequestError::InvalidCommand:
+            std::cerr << "Command must be 1 to 4096 bytes without NUL" << std::endl;
+            break;
+        case protocol::RequestError::IdExhausted:
+            std::cerr << "Request IDs exhausted, reconnect client" << std::endl;
+            break;
+        default:
+            std::cerr << "Selected client's outbound queue is full" << std::endl;
+        }
+        return;
+    }
+
+    if (!hadPending) {
+        watch(EPOLL_CTL_MOD, client.socket.get(), EPOLLIN | EPOLLRDHUP | EPOLLOUT, selectedId_);
+    }
+    std::cout << "[client " << selectedId_ << " request " << std::get<std::uint32_t>(queued)
+              << "] queued" << std::endl;
 }
