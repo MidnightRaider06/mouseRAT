@@ -23,7 +23,8 @@ RequestTracker::queueRequest(OutboundQueue& outbound, MessageType type, std::str
     if (activeId_ != 0) return RequestError::Busy;
     if (nextId_ > requestLimit_) return RequestError::IdExhausted;
     if (type == MessageType::Command &&
-        (payload.empty() || payload.size() > 4096 || payload.find('\0') != std::string_view::npos)) {
+        (payload.empty() || payload.size() > 4096 || payload.find('\0') != std::string_view::npos ||
+         !isValidUtf8(payload))) {
         return RequestError::InvalidCommand;
     }
 
@@ -90,11 +91,16 @@ std::optional<RequestError> RequestTracker::acceptResponse(const FrameView& fram
         }
         break;
 
-    case MessageType::Error:
+    case MessageType::Error: {
         if (frame.payload.size() < 4 || frame.payload.size() > 1028) {
             return RequestError::InvalidPayload;
         }
+        const auto code = readInteger(frame.payload.substr(0, 4));
+        if (code < 1 || code > 4 || !isValidUtf8(frame.payload.substr(4))) {
+            return RequestError::InvalidPayload;
+        }
         break;
+    }
 
     default:
         return RequestError::UnexpectedType;

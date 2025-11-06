@@ -3,6 +3,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <string_view>
 #include <variant>
 
 namespace protocol {
@@ -50,4 +51,5 @@ using DecodeResult = std::variant<Header, HeaderError>;
 
 [[nodiscard]] HeaderBytes encodeHeader(const Header& header);
 [[nodiscard]] DecodeResult decodeHeader(const HeaderBytes& bytes) noexcept;
+[[nodiscard]] bool isValidUtf8(std::string_view text) noexcept;
 }

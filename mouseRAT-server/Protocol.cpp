@@ -70,4 +70,43 @@ DecodeResult decodeHeader(const HeaderBytes& bytes) noexcept {
 
     return header;
 }
+
+bool isValidUtf8(std::string_view text) noexcept {
+    while (!text.empty()) {
+        const auto lead = static_cast<unsigned char>(text.front());
+        text.remove_prefix(1);
+        if (lead <= 0x7f) continue;
+
+        std::size_t remaining;
+        std::uint32_t codepoint, minimum;
+        if (lead >= 0xc2 && lead <= 0xdf) {
+            remaining = 1;
+            codepoint = lead & 0x1f;
+            minimum = 0x80;
+        } else if (lead >= 0xe0 && lead <= 0xef) {
+            remaining = 2;
+            codepoint = lead & 0x0f;
+            minimum = 0x800;
+        } else if (lead >= 0xf0 && lead <= 0xf4) {
+            remaining = 3;
+            codepoint = lead & 0x07;
+            minimum = 0x10000;
+        } else {
+            return false;
+        }
+
+        if (text.size() < remaining) return false;
+        for (std::size_t i = 0; i < remaining; ++i) {
+            const auto byte = static_cast<unsigned char>(text[i]);
+            if ((byte & 0xc0) != 0x80) return false;
+            codepoint = (codepoint << 6) | (byte & 0x3f);
+        }
+        if (codepoint < minimum || codepoint > 0x10ffff ||
+            (codepoint >= 0xd800 && codepoint <= 0xdfff)) {
+            return false;
+        }
+        text.remove_prefix(remaining);
+    }
+    return true;
+}
 }

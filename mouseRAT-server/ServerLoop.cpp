@@ -275,7 +275,7 @@ void ServerLoop::handleCommand(std::string_view command) {
             std::cerr << "Selected client still has a pending command" << std::endl;
             break;
         case protocol::RequestError::InvalidCommand:
-            std::cerr << "Command must be 1 to 4096 bytes without NUL" << std::endl;
+            std::cerr << "Command must be 1 to 4096 bytes without NUL and valid UTF-8" << std::endl;
             break;
         case protocol::RequestError::IdExhausted:
             std::cerr << "Request IDs exhausted, reconnect client" << std::endl;
