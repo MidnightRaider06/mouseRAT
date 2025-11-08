@@ -62,15 +62,45 @@ void ServerLoop::run() {
     std::cout << "Controls: :clients, :use <id>, quit" << std::endl;
 
     while (running_) {
-        const int count = epoll_wait(poller_.get(), events.data(), events.size(), -1);
+        expireClients();
+        const int count = epoll_wait(poller_.get(), events.data(), events.size(), waitTimeout());
         if (count < 0 && errno == EINTR) continue;
         if (count < 0) throw std::system_error(errno, std::generic_category(), "epoll_wait");
 
+        expireClients();
         for (int i = 0; i < count && running_; ++i) {
             const auto id = events[i].data.u64;
             if (id == listenerId) acceptReady();
             else if (id == consoleId) readConsole();
             else clientReady(id, events[i].events);
+        }
+    }
+}
+
+int ServerLoop::waitTimeout() const {
+    std::optional<Connection::Clock::time_point> earliest;
+    for (const auto& [id, client] : clients_) {
+        const auto deadline = client.nextDeadline();
+        if (deadline && (!earliest || *deadline < *earliest)) earliest = deadline;
+    }
+    if (!earliest) return -1;
+
+    const auto remaining = *earliest - Connection::Clock::now();
+    if (remaining <= Connection::Clock::duration::zero()) return 0;
+    return static_cast<int>(std::chrono::ceil<std::chrono::milliseconds>(remaining).count());
+}
+
+void ServerLoop::expireClients() {
+    const auto now = Connection::Clock::now();
+    for (auto it = clients_.begin(); it != clients_.end();) {
+        const auto current = it++;
+        const auto deadline = current->second.nextDeadline();
+        if (deadline && now >= *deadline) {
+            const auto id = current->first;
+            std::cerr << "[client " << id << "] "
+                      << (current->second.helloReceived ? "frame timeout" : "handshake timeout")
+                      << std::endl;
+            disconnect(id);
         }
     }
 }
@@ -108,6 +138,10 @@ void ServerLoop::clientReady(std::uint64_t id, std::uint32_t events) {
     auto found = clients_.find(id);
     if (found == clients_.end()) return;
     auto& client = found->second;
+    if (const auto deadline = client.nextDeadline(); deadline && Connection::Clock::now() >= *deadline) {
+        expireClients();
+        return;
+    }
     const bool hadPending = !client.outbound.empty();
 
     if (events & (EPOLLIN | EPOLLRDHUP | EPOLLHUP | EPOLLERR)) {
@@ -118,11 +152,19 @@ void ServerLoop::clientReady(std::uint64_t id, std::uint32_t events) {
         } while (received < 0 && errno == EINTR);
 
         if (received > 0) {
+            const auto receivedAt = Connection::Clock::now();
             std::string_view input(response.data(), static_cast<std::size_t>(received));
             while (!input.empty()) {
+                if (!client.decoder.hasPartialFrame()) client.frameStarted = receivedAt;
+                if (const auto deadline = client.nextDeadline();
+                    deadline && Connection::Clock::now() >= *deadline) {
+                    expireClients();
+                    return;
+                }
                 const auto step = client.decoder.consume(input);
                 input.remove_prefix(step.consumed);
                 const auto frame = std::get_if<protocol::FrameView>(&step.result);
+                if (frame) client.frameStarted.reset();
                 if (std::holds_alternative<protocol::HeaderError>(step.result) ||
                     (frame && !processFrame(id, client, *frame))) {
                     std::cerr << "[client " << id << "] protocol violation" << std::endl;
