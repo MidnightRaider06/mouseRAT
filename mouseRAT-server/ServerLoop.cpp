@@ -97,9 +97,11 @@ void ServerLoop::expireClients() {
         const auto deadline = current->second.nextDeadline();
         if (deadline && now >= *deadline) {
             const auto id = current->first;
-            std::cerr << "[client " << id << "] "
-                      << (current->second.helloReceived ? "frame timeout" : "handshake timeout")
-                      << std::endl;
+            const auto& client = current->second;
+            const char* reason = "frame timeout";
+            if (!client.helloReceived) reason = "handshake timeout";
+            else if (client.requestDeadline == deadline) reason = "request timeout";
+            std::cerr << "[client " << id << "] " << reason << std::endl;
             disconnect(id);
         }
     }
@@ -217,6 +219,7 @@ bool ServerLoop::processFrame(std::uint64_t id, Connection& client, const protoc
     if (frame.header.type != MessageType::Output && frame.header.type != MessageType::Complete &&
         frame.header.type != MessageType::Error) return false;
     if (client.requests.acceptResponse(frame)) return false;
+    if (client.requests.activeId() == 0) client.requestDeadline.reset();
 
     std::cout << "[client " << id << " request " << frame.header.requestId << "] ";
     if (frame.header.type == MessageType::Output) {
@@ -328,6 +331,7 @@ void ServerLoop::handleCommand(std::string_view command) {
         return;
     }
 
+    client.requestDeadline = Connection::Clock::now() + std::chrono::minutes(5);
     if (!hadPending) {
         watch(EPOLL_CTL_MOD, client.socket.get(), EPOLLIN | EPOLLRDHUP | EPOLLOUT, selectedId_);
     }
