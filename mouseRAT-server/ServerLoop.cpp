@@ -63,6 +63,7 @@ void ServerLoop::run() {
 
     while (running_) {
         expireClients();
+        sendHeartbeats();
         const int count = epoll_wait(poller_.get(), events.data(), events.size(), waitTimeout());
         if (count < 0 && errno == EINTR) continue;
         if (count < 0) throw std::system_error(errno, std::generic_category(), "epoll_wait");
@@ -80,7 +81,7 @@ void ServerLoop::run() {
 int ServerLoop::waitTimeout() const {
     std::optional<Connection::Clock::time_point> earliest;
     for (const auto& [id, client] : clients_) {
-        const auto deadline = client.nextDeadline();
+        const auto deadline = client.nextWakeup();
         if (deadline && (!earliest || *deadline < *earliest)) earliest = deadline;
     }
     if (!earliest) return -1;
@@ -101,9 +102,45 @@ void ServerLoop::expireClients() {
             const char* reason = "frame timeout";
             if (!client.helloReceived) reason = "handshake timeout";
             else if (client.requestDeadline == deadline) reason = "request timeout";
+            else if (client.pongDeadline == deadline) reason = "heartbeat timeout";
             std::cerr << "[client " << id << "] " << reason << std::endl;
             disconnect(id);
         }
+    }
+}
+
+void ServerLoop::sendHeartbeats() {
+    const auto now = Connection::Clock::now();
+    for (auto it = clients_.begin(); it != clients_.end();) {
+        const auto current = it++;
+        auto& client = current->second;
+        if (!client.helloReceived || client.pongDeadline ||
+            now < client.lastFrameAt + std::chrono::seconds(10)) continue;
+
+        const auto id = current->first;
+        if (client.pingSequence == std::numeric_limits<std::uint64_t>::max()) {
+            std::cerr << "[client " << id << "] heartbeat nonce exhausted" << std::endl;
+            disconnect(id);
+            continue;
+        }
+
+        const auto sequence = client.pingSequence + 1;
+        std::array<char, 8> nonce{};
+        for (std::size_t i = 0; i < nonce.size(); ++i) {
+            nonce[i] = static_cast<char>(sequence >> (56 - 8 * i));
+        }
+        const bool wasEmpty = client.outbound.empty();
+        if (!client.outbound.enqueue({protocol::MessageType::Ping, 8, 0},
+                                     std::string_view(nonce.data(), nonce.size()))) {
+            std::cerr << "[client " << id << "] heartbeat queue full" << std::endl;
+            disconnect(id);
+            continue;
+        }
+
+        client.pingSequence = sequence;
+        client.pingNonce = nonce;
+        client.pongDeadline = Connection::Clock::now() + std::chrono::seconds(30);
+        if (wasEmpty) watch(EPOLL_CTL_MOD, client.socket.get(), EPOLLIN | EPOLLRDHUP | EPOLLOUT, id);
     }
 }
 
@@ -174,6 +211,7 @@ void ServerLoop::clientReady(std::uint64_t id, std::uint32_t events) {
                     return;
                 }
                 if (!frame) break;
+                client.lastFrameAt = receivedAt;
             }
         } else if (received == 0 || (errno != EAGAIN && errno != EWOULDBLOCK) ||
                    (events & (EPOLLHUP | EPOLLERR))) {
@@ -215,6 +253,14 @@ bool ServerLoop::processFrame(std::uint64_t id, Connection& client, const protoc
 
     if (frame.header.type == MessageType::Ping) {
         return client.outbound.enqueue({MessageType::Pong, 8, 0}, frame.payload);
+    }
+    if (frame.header.type == MessageType::Pong) {
+        if (!client.pongDeadline ||
+            frame.payload != std::string_view(client.pingNonce.data(), client.pingNonce.size())) {
+            return false;
+        }
+        client.pongDeadline.reset();
+        return true;
     }
     if (frame.header.type != MessageType::Output && frame.header.type != MessageType::Complete &&
         frame.header.type != MessageType::Error) return false;

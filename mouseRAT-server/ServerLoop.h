@@ -16,6 +16,7 @@ private:
     void watch(int operation, int fd, std::uint32_t events, std::uint64_t id);
     int waitTimeout() const;
     void expireClients();
+    void sendHeartbeats();
     void acceptReady();
     void clientReady(std::uint64_t id, std::uint32_t events);
     bool processFrame(std::uint64_t id, Connection& client, const protocol::FrameView& frame);
