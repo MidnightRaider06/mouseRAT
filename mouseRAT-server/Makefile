@@ -1,7 +1,7 @@
-SERVER_FILES = main.cpp TCPServer.cpp ServerLoop.cpp Protocol.cpp FrameDecoder.cpp OutboundQueue.cpp RequestTracker.cpp
+SERVER_FILES = main.cpp TCPServer.cpp ServerLoop.cpp Protocol.cpp FrameDecoder.cpp OutboundQueue.cpp RequestTracker.cpp DiskWorker.cpp
 
 CC = g++
-CFLAGS = -std=c++17 -Wall -Wextra -Wpedantic -g
+CFLAGS = -std=c++17 -Wall -Wextra -Wpedantic -g -pthread
 
 OUTPUT = server.exe
 
@@ -14,7 +14,7 @@ run: build
 
 build: $(OUTPUT)
 
-$(OUTPUT): $(SERVER_FILES) TCPServer.h UniqueFd.h Connection.h ServerLoop.h Protocol.h FrameDecoder.h OutboundQueue.h RequestTracker.h
+$(OUTPUT): $(SERVER_FILES) TCPServer.h UniqueFd.h Connection.h ServerLoop.h Protocol.h FrameDecoder.h OutboundQueue.h RequestTracker.h DiskWorker.h
 	$(CC) $(CFLAGS) $(SERVER_FILES) -o $(OUTPUT)
 
 clean:
