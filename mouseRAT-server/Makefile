@@ -1,4 +1,4 @@
-SERVER_FILES = main.cpp TCPServer.cpp ServerLoop.cpp Protocol.cpp FrameDecoder.cpp OutboundQueue.cpp RequestTracker.cpp DiskWorker.cpp ScreenshotStore.cpp
+SERVER_FILES = main.cpp TCPServer.cpp ServerLoop.cpp Protocol.cpp FrameDecoder.cpp OutboundQueue.cpp RequestTracker.cpp DiskWorker.cpp ScreenshotStore.cpp ScreenshotTransfers.cpp
 
 CC = g++
 CFLAGS = -std=c++17 -Wall -Wextra -Wpedantic -g -pthread
@@ -14,7 +14,7 @@ run: build
 
 build: $(OUTPUT)
 
-$(OUTPUT): $(SERVER_FILES) TCPServer.h UniqueFd.h Connection.h ServerLoop.h Protocol.h FrameDecoder.h OutboundQueue.h RequestTracker.h DiskWorker.h ScreenshotStore.h
+$(OUTPUT): $(SERVER_FILES) TCPServer.h UniqueFd.h Connection.h ServerLoop.h Protocol.h FrameDecoder.h OutboundQueue.h RequestTracker.h DiskWorker.h ScreenshotStore.h ScreenshotTransfers.h
 	$(CC) $(CFLAGS) $(SERVER_FILES) -o $(OUTPUT)
 
 clean:
