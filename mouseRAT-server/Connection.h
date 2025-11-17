@@ -19,6 +19,14 @@ struct Connection {
     protocol::RequestTracker requests{};
     bool helloReceived = false;
 
+    std::array<char, 4096> input{};
+    std::size_t inputOffset = 0;
+    std::size_t inputSize = 0;
+    Clock::time_point inputAt{};
+    std::optional<protocol::FrameView> pendingDisk{};
+    std::uint64_t transferId = 0;
+    std::uint32_t screenshotRequest = 0;
+
     Clock::time_point acceptedAt = Clock::now();
     std::optional<Clock::time_point> frameStarted{};
     std::optional<Clock::time_point> requestDeadline{};

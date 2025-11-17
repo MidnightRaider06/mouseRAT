@@ -16,6 +16,7 @@ struct ScreenshotCompletion {
     DiskCompletion disk;
     std::uint64_t clientId;
     std::uint32_t requestId;
+    protocol::ImageFormat format;
     bool firstFailure;
     bool released;
 };
@@ -43,6 +44,7 @@ private:
         std::uint32_t requestId = 0;
         State state = State::Free;
         bool failed = false;
+        protocol::ImageFormat format{};
     };
 
     Transfer* find(std::uint64_t id) noexcept;

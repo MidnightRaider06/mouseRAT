@@ -1,6 +1,7 @@
 #pragma once
 
 #include "TCPServer.h"
+#include "ScreenshotTransfers.h"
 
 #include <array>
 #include <cstdint>
@@ -19,6 +20,10 @@ private:
     void sendHeartbeats();
     void acceptReady();
     void clientReady(std::uint64_t id, std::uint32_t events);
+    void updateInterest(std::uint64_t id, const Connection& client);
+    bool processInput(std::uint64_t id, Connection& client);
+    ScreenshotAdmission submitImage(std::uint64_t id, Connection& client);
+    void diskReady();
     bool processFrame(std::uint64_t id, Connection& client, const protocol::FrameView& frame);
     void readConsole();
     void handleCommand(std::string_view command);
@@ -26,7 +31,11 @@ private:
 
     TCPServer& listener_;
     UniqueFd poller_;
+    ScreenshotStore screenshots_;
+    DiskWorker disk_;
+    ScreenshotTransfers transfers_;
     std::map<std::uint64_t, Connection> clients_;
+    std::uint64_t resumeAfter_ = 0;
     std::uint64_t nextId_ = 1;
     std::uint64_t selectedId_ = 0;
     bool running_ = true;

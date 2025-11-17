@@ -39,7 +39,10 @@ ScreenshotBegin ScreenshotTransfers::begin(std::uint64_t clientId, std::uint32_t
     retryCancellations();
     const auto id = lastId_ + 1;
     if (!worker_.submit({DiskOperation::Begin, id, metadata})) return {ScreenshotAdmission::Full};
-    *available = {id, clientId, requestId, State::Streaming, false};
+    std::uint32_t format = 0;
+    for (unsigned char byte : metadata.substr(8)) format = (format << 8) | byte;
+    *available = {id, clientId, requestId, State::Streaming, false,
+                  static_cast<protocol::ImageFormat>(format)};
     lastId_ = id;
     return {ScreenshotAdmission::Accepted, id};
 }
@@ -87,7 +90,7 @@ std::optional<ScreenshotCompletion> ScreenshotTransfers::takeCompletion() {
     }
     const bool released = !completed->error && (completed->operation == DiskOperation::Cancel ||
         (completed->operation == DiskOperation::Commit && !transfer->failed));
-    const ScreenshotCompletion result{*completed, transfer->clientId, transfer->requestId,
+    const ScreenshotCompletion result{*completed, transfer->clientId, transfer->requestId, transfer->format,
                                       firstFailure, released};
     if (released) *transfer = {};
     retryCancellations();

@@ -3,7 +3,7 @@ SERVER_FILES = main.cpp TCPServer.cpp ServerLoop.cpp Protocol.cpp FrameDecoder.c
 CC = g++
 CFLAGS = -std=c++17 -Wall -Wextra -Wpedantic -g -pthread
 
-OUTPUT = server.exe
+OUTPUT = server
 
 .PHONY: default build run clean
 

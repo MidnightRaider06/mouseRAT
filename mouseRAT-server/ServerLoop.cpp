@@ -11,7 +11,14 @@
 namespace {
 constexpr std::uint64_t listenerId = 0;
 constexpr std::uint64_t consoleId = std::numeric_limits<std::uint64_t>::max();
+constexpr std::uint64_t diskId = consoleId - 1;
 constexpr std::size_t maxClients = 64;
+
+std::filesystem::path screenshotDirectory() {
+    const auto timestamp = std::chrono::system_clock::now().time_since_epoch().count();
+    return std::filesystem::path("screenshots") /
+           ("run-" + std::to_string(timestamp) + "-" + std::to_string(getpid()));
+}
 
 std::uint32_t readStatus(std::string_view payload) noexcept {
     std::uint32_t value = 0;
@@ -37,13 +44,15 @@ private:
 }
 
 ServerLoop::ServerLoop(TCPServer& listener)
-    : listener_(listener), poller_(epoll_create1(EPOLL_CLOEXEC)) {
+    : listener_(listener), poller_(epoll_create1(EPOLL_CLOEXEC)),
+      screenshots_(screenshotDirectory()), disk_(std::ref(screenshots_)), transfers_(disk_) {
     if (poller_.get() < 0) {
         throw std::system_error(errno, std::generic_category(), "epoll_create1");
     }
 
     watch(EPOLL_CTL_ADD, listener_.descriptor(), EPOLLIN, listenerId);
     watch(EPOLL_CTL_ADD, STDIN_FILENO, EPOLLIN, consoleId);
+    watch(EPOLL_CTL_ADD, disk_.descriptor(), EPOLLIN, diskId);
 }
 
 void ServerLoop::watch(int operation, int fd, std::uint32_t events, std::uint64_t id) {
@@ -59,7 +68,7 @@ void ServerLoop::watch(int operation, int fd, std::uint32_t events, std::uint64_
 void ServerLoop::run() {
     ConsoleMode consoleMode;
     std::array<epoll_event, 32> events{};
-    std::cout << "Controls: :clients, :use <id>, quit" << std::endl;
+    std::cout << "Controls: :clients, :use <id>, screenshot, quit" << std::endl;
 
     while (running_) {
         expireClients();
@@ -73,6 +82,7 @@ void ServerLoop::run() {
             const auto id = events[i].data.u64;
             if (id == listenerId) acceptReady();
             else if (id == consoleId) readConsole();
+            else if (id == diskId) diskReady();
             else clientReady(id, events[i].events);
         }
     }
@@ -140,7 +150,7 @@ void ServerLoop::sendHeartbeats() {
         client.pingSequence = sequence;
         client.pingNonce = nonce;
         client.pongDeadline = Connection::Clock::now() + std::chrono::seconds(30);
-        if (wasEmpty) watch(EPOLL_CTL_MOD, client.socket.get(), EPOLLIN | EPOLLRDHUP | EPOLLOUT, id);
+        if (wasEmpty) updateInterest(id, client);
     }
 }
 
@@ -149,7 +159,7 @@ void ServerLoop::acceptReady() {
         auto client = listener_.acceptConnection();
         if (!client) break;
 
-        if (clients_.size() == maxClients || nextId_ == consoleId) {
+        if (clients_.size() == maxClients || nextId_ == diskId) {
             std::cerr << "Client limit reached" << std::endl;
             continue;
         }
@@ -168,6 +178,7 @@ void ServerLoop::disconnect(std::uint64_t id) {
         std::cerr << "[client " << id << " request " << found->second.requests.activeId()
                   << "] interrupted" << std::endl;
     }
+    transfers_.cancelClient(id);
     clients_.erase(id);
     if (selectedId_ == id) selectedId_ = 0;
     std::cout << "[client " << id << "] disconnected" << std::endl;
@@ -181,37 +192,25 @@ void ServerLoop::clientReady(std::uint64_t id, std::uint32_t events) {
         expireClients();
         return;
     }
-    const bool hadPending = !client.outbound.empty();
+    if (client.pendingDisk && (events & (EPOLLHUP | EPOLLERR))) {
+        disconnect(id);
+        return;
+    }
 
-    if (events & (EPOLLIN | EPOLLRDHUP | EPOLLHUP | EPOLLERR)) {
-        std::array<char, 4096> response{};
+    if (!client.pendingDisk && (events & (EPOLLIN | EPOLLRDHUP | EPOLLHUP | EPOLLERR))) {
         ssize_t received;
         do {
-            received = recv(client.socket.get(), response.data(), response.size(), 0);
+            received = recv(client.socket.get(), client.input.data(), client.input.size(), 0);
         } while (received < 0 && errno == EINTR);
 
         if (received > 0) {
-            const auto receivedAt = Connection::Clock::now();
-            std::string_view input(response.data(), static_cast<std::size_t>(received));
-            while (!input.empty()) {
-                if (!client.decoder.hasPartialFrame()) client.frameStarted = receivedAt;
-                if (const auto deadline = client.nextDeadline();
-                    deadline && Connection::Clock::now() >= *deadline) {
-                    expireClients();
-                    return;
-                }
-                const auto step = client.decoder.consume(input);
-                input.remove_prefix(step.consumed);
-                const auto frame = std::get_if<protocol::FrameView>(&step.result);
-                if (frame) client.frameStarted.reset();
-                if (std::holds_alternative<protocol::HeaderError>(step.result) ||
-                    (frame && !processFrame(id, client, *frame))) {
-                    std::cerr << "[client " << id << "] protocol violation" << std::endl;
-                    disconnect(id);
-                    return;
-                }
-                if (!frame) break;
-                client.lastFrameAt = receivedAt;
+            client.inputOffset = 0;
+            client.inputSize = static_cast<std::size_t>(received);
+            client.inputAt = Connection::Clock::now();
+            if (!processInput(id, client)) {
+                std::cerr << "[client " << id << "] protocol violation" << std::endl;
+                disconnect(id);
+                return;
             }
         } else if (received == 0 || (errno != EAGAIN && errno != EWOULDBLOCK) ||
                    (events & (EPOLLHUP | EPOLLERR))) {
@@ -234,9 +233,94 @@ void ServerLoop::clientReady(std::uint64_t id, std::uint32_t events) {
         }
     }
 
-    if (hadPending != !client.outbound.empty()) {
-        watch(EPOLL_CTL_MOD, client.socket.get(), EPOLLIN | EPOLLRDHUP |
-              (client.outbound.empty() ? 0u : EPOLLOUT), id);
+    updateInterest(id, client);
+}
+
+void ServerLoop::updateInterest(std::uint64_t id, const Connection& client) {
+    const auto reads = client.pendingDisk ? 0u : EPOLLIN | EPOLLRDHUP;
+    watch(EPOLL_CTL_MOD, client.socket.get(), reads | (client.outbound.empty() ? 0u : EPOLLOUT), id);
+}
+
+ScreenshotAdmission ServerLoop::submitImage(std::uint64_t id, Connection& client) {
+    const auto& frame = *client.pendingDisk;
+    if (frame.header.type == protocol::MessageType::ImageBegin) {
+        const auto admitted = transfers_.begin(id, frame.header.requestId, frame.payload);
+        if (admitted.status == ScreenshotAdmission::Accepted) client.transferId = admitted.transferId;
+        return admitted.status;
+    }
+    if (frame.header.type == protocol::MessageType::ImageData) {
+        return transfers_.write(client.transferId, frame.payload);
+    }
+    const auto admitted = transfers_.commit(client.transferId);
+    if (admitted == ScreenshotAdmission::Accepted) client.requestDeadline.reset();
+    return admitted;
+}
+
+bool ServerLoop::processInput(std::uint64_t id, Connection& client) {
+    while (true) {
+        if (const auto deadline = client.nextDeadline(); deadline && Connection::Clock::now() >= *deadline) {
+            return false;
+        }
+        if (client.pendingDisk) {
+            const auto admitted = submitImage(id, client);
+            if (admitted == ScreenshotAdmission::Full) return true;
+            if (admitted != ScreenshotAdmission::Accepted) return false;
+            client.pendingDisk.reset();
+        }
+        if (client.inputOffset == client.inputSize) return true;
+
+        if (!client.decoder.hasPartialFrame()) client.frameStarted = client.inputAt;
+        if (const auto deadline = client.nextDeadline(); deadline && Connection::Clock::now() >= *deadline) {
+            return false;
+        }
+        const auto step = client.decoder.consume(std::string_view(client.input.data() + client.inputOffset,
+                                                                client.inputSize - client.inputOffset));
+        client.inputOffset += step.consumed;
+        if (std::holds_alternative<protocol::HeaderError>(step.result)) return false;
+        const auto frame = std::get_if<protocol::FrameView>(&step.result);
+        if (!frame) return true;
+        client.frameStarted.reset();
+        if (!processFrame(id, client, *frame)) return false;
+        client.lastFrameAt = client.inputAt;
+    }
+}
+
+void ServerLoop::diskReady() {
+    for (int count = 0; count < 16; ++count) {
+        const auto result = transfers_.takeCompletion();
+        if (!result) break;
+        const auto& job = result->disk;
+        if (result->firstFailure || (job.operation == DiskOperation::Cancel && job.error)) {
+            std::cerr << "[client " << result->clientId << " request " << result->requestId
+                      << "] storage error: " << job.error.message() << std::endl;
+            if (clients_.find(result->clientId) != clients_.end()) disconnect(result->clientId);
+        }
+        if (!result->released) continue;
+        if (job.operation == DiskOperation::Commit) {
+            std::cout << "[client " << result->clientId << " request " << result->requestId
+                      << "] saved " << screenshots_.destination(job.transferId, result->format) << std::endl;
+        } else {
+            std::cout << "[client " << result->clientId << " request " << result->requestId
+                      << "] screenshot canceled" << std::endl;
+        }
+        const auto found = clients_.find(result->clientId);
+        if (found != clients_.end() && found->second.transferId == job.transferId) {
+            found->second.transferId = 0;
+            found->second.screenshotRequest = 0;
+        }
+    }
+
+    auto it = clients_.upper_bound(resumeAfter_);
+    bool first = true;
+    for (std::size_t remaining = clients_.size(); remaining && !clients_.empty(); --remaining) {
+        if (it == clients_.end()) it = clients_.begin();
+        const auto current = it++;
+        auto& client = current->second;
+        if (!client.pendingDisk) continue;
+        const auto id = current->first;
+        if (first) { resumeAfter_ = id; first = false; }
+        if (!processInput(id, client)) disconnect(id);
+        else updateInterest(id, client);
     }
 }
 
@@ -262,9 +346,15 @@ bool ServerLoop::processFrame(std::uint64_t id, Connection& client, const protoc
         client.pongDeadline.reset();
         return true;
     }
-    if (frame.header.type != MessageType::Output && frame.header.type != MessageType::Complete &&
-        frame.header.type != MessageType::Error) return false;
     if (client.requests.acceptResponse(frame)) return false;
+    if (client.screenshotRequest != 0 && frame.header.type != MessageType::Error) {
+        client.pendingDisk = frame;
+        return true;
+    }
+    if (client.screenshotRequest != 0) {
+        transfers_.cancelClient(id);
+        if (client.transferId == 0) client.screenshotRequest = 0;
+    }
     if (client.requests.activeId() == 0) client.requestDeadline.reset();
 
     std::cout << "[client " << id << " request " << frame.header.requestId << "] ";
@@ -341,10 +431,6 @@ void ServerLoop::handleCommand(std::string_view command) {
         std::cerr << "Unknown console control" << std::endl;
         return;
     }
-    if (command.substr(0, 10) == "screenshot") {
-        std::cerr << "Screenshots are not implemented" << std::endl;
-        return;
-    }
 
     auto found = clients_.find(selectedId_);
     if (found == clients_.end()) {
@@ -357,9 +443,14 @@ void ServerLoop::handleCommand(std::string_view command) {
         std::cerr << "Selected client is awaiting HELLO" << std::endl;
         return;
     }
+    if (client.screenshotRequest != 0 && client.requests.activeId() == 0) {
+        std::cerr << "Selected client's screenshot is awaiting storage completion" << std::endl;
+        return;
+    }
 
     const bool hadPending = !client.outbound.empty();
-    const auto queued = client.requests.queueCommand(client.outbound, command);
+    const auto queued = command == "screenshot" ? client.requests.queueScreenshot(client.outbound) :
+                                                client.requests.queueCommand(client.outbound, command);
     if (const auto error = std::get_if<protocol::RequestError>(&queued)) {
         switch (*error) {
         case protocol::RequestError::Busy:
@@ -378,9 +469,8 @@ void ServerLoop::handleCommand(std::string_view command) {
     }
 
     client.requestDeadline = Connection::Clock::now() + std::chrono::minutes(5);
-    if (!hadPending) {
-        watch(EPOLL_CTL_MOD, client.socket.get(), EPOLLIN | EPOLLRDHUP | EPOLLOUT, selectedId_);
-    }
+    if (command == "screenshot") client.screenshotRequest = std::get<std::uint32_t>(queued);
+    if (!hadPending) updateInterest(selectedId_, client);
     std::cout << "[client " << selectedId_ << " request " << std::get<std::uint32_t>(queued)
               << "] queued" << std::endl;
 }
