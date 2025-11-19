@@ -20,8 +20,8 @@ TCPServer::TCPServer(int portNumber)
 
 bool TCPServer::bindSocket() {
     const int reuseAddress = 1;
-    if (setsockopt(serverSocket.get(), SOL_SOCKET, SO_REUSEADDR,
-                   &reuseAddress, sizeof(reuseAddress)) < 0) {
+
+    if (setsockopt(serverSocket.get(), SOL_SOCKET, SO_REUSEADDR, &reuseAddress, sizeof(reuseAddress)) < 0) {
         std::cerr << "setsockopt(SO_REUSEADDR) failed: " << std::strerror(errno) << std::endl;
         return false;
     }
@@ -51,8 +51,8 @@ std::optional<Connection> TCPServer::acceptConnection() {
     int fd;
 
     do {
-        fd = accept4(serverSocket.get(), reinterpret_cast<sockaddr*>(&clientAddr),
-                     &clientLen, SOCK_CLOEXEC | SOCK_NONBLOCK);
+        fd = accept4(serverSocket.get(), reinterpret_cast<sockaddr*>(&clientAddr), &clientLen,
+                     SOCK_CLOEXEC | SOCK_NONBLOCK);
     } while (fd < 0 && errno == EINTR);
 
     if (fd < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
@@ -60,11 +60,13 @@ std::optional<Connection> TCPServer::acceptConnection() {
     }
 
     UniqueFd accepted(fd);
+
     if (fd < 0) {
         throw std::system_error(errno, std::generic_category(), "accept4");
     }
 
     char ipStr[INET_ADDRSTRLEN]{};
+
     if (!inet_ntop(AF_INET, &clientAddr.sin_addr, ipStr, sizeof(ipStr))) {
         throw std::system_error(errno, std::generic_category(), "inet_ntop");
     }

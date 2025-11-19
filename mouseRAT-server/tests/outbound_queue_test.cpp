@@ -16,6 +16,7 @@ std::string wireFrame(const Header& header, std::string_view payload) {
 
 std::string drain(OutboundQueue& queue, std::size_t writeSize) {
     std::string wire;
+
     while (!queue.empty()) {
         const auto pending = queue.pending();
         const auto sent = std::min(pending.size(), writeSize);
@@ -23,6 +24,7 @@ std::string drain(OutboundQueue& queue, std::size_t writeSize) {
         wire.append(pending.substr(0, sent));
         queue.advance(sent);
     }
+
     assert(queue.size() == 0 && queue.pending().empty());
     return wire;
 }
@@ -80,19 +82,26 @@ int main() {
     assert(drain(queue, 4093) == prefix.substr(13) + wireFrame(hello, {}));
 
     assert(queue.enqueue(hello, {}));
+
     try {
         queue.advance(queue.pending().size() + 1);
         assert(false);
-    } catch (const std::out_of_range&) {}
+    } catch (const std::out_of_range&) {
+    }
+
     assert(queue.pending() == wireFrame(hello, {}));
 
     try {
         (void)queue.enqueue(command, "di");
         assert(false);
-    } catch (const std::invalid_argument&) {}
+    } catch (const std::invalid_argument&) {
+    }
+
     try {
         (void)queue.enqueue({MessageType::Command, 0, 1}, {});
         assert(false);
-    } catch (const std::invalid_argument&) {}
+    } catch (const std::invalid_argument&) {
+    }
+
     assert(drain(queue, 16) == wireFrame(hello, {}));
 }

@@ -11,11 +11,11 @@ constexpr auto accepted = ScreenshotAdmission::Accepted;
 constexpr auto full = ScreenshotAdmission::Full;
 constexpr auto invalid = ScreenshotAdmission::InvalidState;
 
-const std::string bmp(
-    "\x42\x4d\x3a\x00\x00\x00\x00\x00\x00\x00\x36\x00\x00\x00\x28\x00"
-    "\x00\x00\x01\x00\x00\x00\x01\x00\x00\x00\x01\x00\x18\x00\x00\x00"
-    "\x00\x00\x04\x00\x00\x00\x13\x0b\x00\x00\x13\x0b\x00\x00\x00\x00"
-    "\x00\x00\x00\x00\x00\x00\x00\x00\xff\x00", 58);
+const std::string bmp("\x42\x4d\x3a\x00\x00\x00\x00\x00\x00\x00\x36\x00\x00\x00\x28\x00"
+                      "\x00\x00\x01\x00\x00\x00\x01\x00\x00\x00\x01\x00\x18\x00\x00\x00"
+                      "\x00\x00\x04\x00\x00\x00\x13\x0b\x00\x00\x13\x0b\x00\x00\x00\x00"
+                      "\x00\x00\x00\x00\x00\x00\x00\x00\xff\x00",
+                      58);
 
 std::string metadata() {
     std::string bytes(12, '\0');
@@ -53,7 +53,10 @@ void lifecycle(const std::filesystem::path& directory) {
     transfers.cancelClient(10);
     transfers.cancelClient(20);
 
-    for (int i = 0; i < 3; ++i) assert(!completion(transfers, worker).released);
+    for (int i = 0; i < 3; ++i) {
+        assert(!completion(transfers, worker).released);
+    }
+
     const auto saved = completion(transfers, worker);
     assert(saved.clientId == 10 && saved.requestId == 900 && saved.released && !saved.disk.error);
     assert(saved.disk.operation == DiskOperation::Commit);
@@ -76,6 +79,7 @@ void lifecycle(const std::filesystem::path& directory) {
     assert(!failedCommit.firstFailure && failedCommit.disk.error && !failedCommit.released);
     assert(completion(transfers, worker).released);
     assert(!std::filesystem::exists(store.destination(bad.transferId, protocol::ImageFormat::Bmp)));
+
     for (const auto& entry : std::filesystem::directory_iterator(directory)) {
         assert(entry.path().extension() != ".part");
     }
@@ -89,14 +93,17 @@ void saturatedQueue() {
             started.set_value();
             gate.wait();
         }
+
         return {};
     });
     ScreenshotTransfers transfers(worker);
     assert(transfers.begin(1, 500, metadata()).transferId == 1);
     assert(started.get_future().wait_for(std::chrono::seconds(5)) == std::future_status::ready);
+
     for (std::size_t i = 1; i < DiskWorker::maxJobs; ++i) {
         assert(transfers.write(1, "x") == accepted);
     }
+
     assert(transfers.begin(2, 1, metadata()).status == full);
     assert(transfers.commit(1) == full);
     assert(transfers.write(1, "x") == full);
@@ -109,6 +116,7 @@ void saturatedQueue() {
     for (std::size_t i = 0; i < DiskWorker::maxJobs; ++i) {
         assert(!completion(transfers, worker).released);
     }
+
     assert(completion(transfers, worker).released);
     const auto next = transfers.begin(1, 501, metadata());
     assert(next.status == accepted && next.transferId == 2);
@@ -120,27 +128,33 @@ void saturatedQueue() {
 
 void boundedRetirement(bool failCleanup) {
     DiskWorker worker([=](const DiskJob& job) {
-        return failCleanup && job.operation == DiskOperation::Cancel ?
-            std::make_error_code(std::errc::permission_denied) : std::error_code{};
+        return failCleanup && job.operation == DiskOperation::Cancel
+                   ? std::make_error_code(std::errc::permission_denied)
+                   : std::error_code{};
     });
     ScreenshotTransfers transfers(worker);
+
     for (std::uint64_t i = 1; i <= ScreenshotTransfers::maxTransfers; ++i) {
         assert(transfers.begin(i, 1, metadata()).status == accepted);
         transfers.cancelClient(i);
     }
+
     assert(transfers.begin(1000, 1, metadata()).status == full);
     assert(!completion(transfers, worker).released);
     assert(transfers.begin(1000, 1, metadata()).status == full);
+
     for (std::size_t i = 1; i < 2 * ScreenshotTransfers::maxTransfers; ++i) {
         const auto result = completion(transfers, worker);
         const bool cancel = result.disk.operation == DiskOperation::Cancel;
         assert(result.released == (cancel && !failCleanup));
         assert(result.firstFailure == (cancel && failCleanup));
     }
+
     transfers.cancelClient(1);
     assert(!transfers.takeCompletion());
     const auto next = transfers.begin(1000, 1, metadata());
     assert(next.status == (failCleanup ? full : accepted));
+
     if (!failCleanup) {
         assert(next.transferId == ScreenshotTransfers::maxTransfers + 1);
         transfers.cancelClient(1000);

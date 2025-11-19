@@ -25,6 +25,9 @@ public:
     bool bindSocket();
     bool listenSocket();
 
-    [[nodiscard]] int descriptor() const noexcept { return serverSocket.get(); }
+    [[nodiscard]] int descriptor() const noexcept {
+        return serverSocket.get();
+    }
+
     std::optional<Connection> acceptConnection();
 };

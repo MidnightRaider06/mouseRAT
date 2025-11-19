@@ -12,13 +12,22 @@ FrameView response(MessageType type, std::uint32_t id, std::string_view payload)
 
 std::string metadata(std::uint64_t total, std::uint32_t format) {
     std::string bytes(12, '\0');
-    for (std::size_t i = 0; i < 8; ++i) bytes[i] = static_cast<char>(total >> (56 - 8 * i));
-    for (std::size_t i = 0; i < 4; ++i) bytes[8 + i] = static_cast<char>(format >> (24 - 8 * i));
+
+    for (std::size_t i = 0; i < 8; ++i) {
+        bytes[i] = static_cast<char>(total >> (56 - 8 * i));
+    }
+
+    for (std::size_t i = 0; i < 4; ++i) {
+        bytes[8 + i] = static_cast<char>(format >> (24 - 8 * i));
+    }
+
     return bytes;
 }
 
 void drain(OutboundQueue& queue) {
-    while (!queue.empty()) queue.advance(queue.pending().size());
+    while (!queue.empty()) {
+        queue.advance(queue.pending().size());
+    }
 }
 
 int main() {
@@ -34,14 +43,19 @@ int main() {
     assert(tracker.activeId() == 1 && !tracker.imageInfo());
 
     assert(tracker.acceptResponse(response(MessageType::ImageData, 1, "x")) == RequestError::UnexpectedType);
-    assert(tracker.acceptResponse(response(MessageType::Complete, 1, complete)) == RequestError::UnexpectedType);
-    assert(tracker.acceptResponse(response(MessageType::ImageBegin, 2, metadata(5, 1))) == RequestError::WrongRequestId);
-    assert(tracker.acceptResponse(response(MessageType::ImageBegin, 1, "short")) == RequestError::InvalidPayload);
+    assert(tracker.acceptResponse(response(MessageType::Complete, 1, complete)) ==
+           RequestError::UnexpectedType);
+    assert(tracker.acceptResponse(response(MessageType::ImageBegin, 2, metadata(5, 1))) ==
+           RequestError::WrongRequestId);
+    assert(tracker.acceptResponse(response(MessageType::ImageBegin, 1, "short")) ==
+           RequestError::InvalidPayload);
     for (auto format : {0u, 3u, 256u, 257u}) {
         assert(tracker.acceptResponse(response(MessageType::ImageBegin, 1, metadata(5, format))) ==
                RequestError::InvalidPayload);
     }
-    assert(tracker.acceptResponse(response(MessageType::ImageBegin, 1, metadata(0, 1))) == RequestError::InvalidPayload);
+
+    assert(tracker.acceptResponse(response(MessageType::ImageBegin, 1, metadata(0, 1))) ==
+           RequestError::InvalidPayload);
     for (auto size : {RequestTracker::maxImageBytes + 1, std::uint64_t{1} << 32,
                       std::numeric_limits<std::uint64_t>::max()}) {
         assert(tracker.acceptResponse(response(MessageType::ImageBegin, 1, metadata(size, 1))) ==
@@ -51,24 +65,31 @@ int main() {
 
     assert(!tracker.acceptResponse(response(MessageType::ImageBegin, 1, metadata(5, 1))));
     assert(tracker.imageInfo()->totalBytes == 5 && tracker.imageInfo()->format == ImageFormat::Png);
-    assert(tracker.acceptResponse(response(MessageType::ImageBegin, 1, metadata(9, 2))) == RequestError::UnexpectedType);
+    assert(tracker.acceptResponse(response(MessageType::ImageBegin, 1, metadata(9, 2))) ==
+           RequestError::UnexpectedType);
     assert(tracker.imageInfo()->totalBytes == 5 && tracker.imageInfo()->format == ImageFormat::Png);
-    assert(tracker.acceptResponse(response(MessageType::Output, 1, std::string(2, '\0'))) == RequestError::UnexpectedType);
+    assert(tracker.acceptResponse(response(MessageType::Output, 1, std::string(2, '\0'))) ==
+           RequestError::UnexpectedType);
     assert(tracker.acceptResponse(response(MessageType::ImageData, 1, {})) == RequestError::InvalidPayload);
-    assert(tracker.acceptResponse(response(MessageType::ImageData, 1, std::string(maxPayloadSize + 1, 'x'))) ==
-           RequestError::InvalidPayload);
-    assert(tracker.acceptResponse(response(MessageType::ImageData, 1, "excess")) == RequestError::ImageSizeMismatch);
+    assert(
+        tracker.acceptResponse(response(MessageType::ImageData, 1, std::string(maxPayloadSize + 1, 'x'))) ==
+        RequestError::InvalidPayload);
+    assert(tracker.acceptResponse(response(MessageType::ImageData, 1, "excess")) ==
+           RequestError::ImageSizeMismatch);
     assert(!tracker.acceptResponse(response(MessageType::ImageData, 1, "ab")));
-    assert(tracker.acceptResponse(response(MessageType::Complete, 1, complete)) == RequestError::ImageSizeMismatch);
+    assert(tracker.acceptResponse(response(MessageType::Complete, 1, complete)) ==
+           RequestError::ImageSizeMismatch);
     assert(!tracker.acceptResponse(response(MessageType::ImageData, 1, "cde")));
-    assert(tracker.acceptResponse(response(MessageType::Complete, 1, failure)) == RequestError::InvalidPayload);
+    assert(tracker.acceptResponse(response(MessageType::Complete, 1, failure)) ==
+           RequestError::InvalidPayload);
     assert(!tracker.acceptResponse(response(MessageType::Complete, 1, complete)));
     assert(tracker.activeId() == 0 && !tracker.imageInfo());
     assert(tracker.acceptResponse(response(MessageType::ImageData, 1, "x")) == RequestError::NoActiveRequest);
 
     assert(std::get<std::uint32_t>(tracker.queueCommand(outbound, "dir")) == 2);
     drain(outbound);
-    assert(tracker.acceptResponse(response(MessageType::ImageBegin, 2, metadata(1, 2))) == RequestError::UnexpectedType);
+    assert(tracker.acceptResponse(response(MessageType::ImageBegin, 2, metadata(1, 2))) ==
+           RequestError::UnexpectedType);
     assert(!tracker.acceptResponse(response(MessageType::Complete, 2, complete)));
     assert(std::get<std::uint32_t>(tracker.queueScreenshot(outbound)) == 3);
     drain(outbound);
@@ -84,12 +105,16 @@ int main() {
 
     assert(std::get<std::uint32_t>(tracker.queueScreenshot(outbound)) == 5);
     drain(outbound);
-    assert(!tracker.acceptResponse(response(MessageType::ImageBegin, 5, metadata(RequestTracker::maxImageBytes, 2))));
+    assert(!tracker.acceptResponse(
+        response(MessageType::ImageBegin, 5, metadata(RequestTracker::maxImageBytes, 2))));
     const std::string chunk(maxPayloadSize, '\0');
+
     for (std::uint64_t bytes = 0; bytes < RequestTracker::maxImageBytes; bytes += chunk.size()) {
         assert(!tracker.acceptResponse(response(MessageType::ImageData, 5, chunk)));
     }
-    assert(tracker.acceptResponse(response(MessageType::ImageData, 5, "x")) == RequestError::ImageSizeMismatch);
+
+    assert(tracker.acceptResponse(response(MessageType::ImageData, 5, "x")) ==
+           RequestError::ImageSizeMismatch);
     assert(!tracker.acceptResponse(response(MessageType::Complete, 5, complete)));
 
     RequestTracker limited(1);

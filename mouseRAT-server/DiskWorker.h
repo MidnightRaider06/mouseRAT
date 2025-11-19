@@ -42,7 +42,10 @@ public:
 
     [[nodiscard]] bool submit(const DiskJob& job);
     [[nodiscard]] std::optional<DiskCompletion> takeCompletion();
-    [[nodiscard]] int descriptor() const noexcept { return completionFd_.get(); }
+    [[nodiscard]] int descriptor() const noexcept {
+        return completionFd_.get();
+    }
+
     void requestStop();
     void stop();
 

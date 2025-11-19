@@ -13,8 +13,13 @@ public:
     [[nodiscard]] std::string_view pending() const noexcept;
     void advance(std::size_t sent);
 
-    [[nodiscard]] std::size_t size() const noexcept { return size_; }
-    [[nodiscard]] bool empty() const noexcept { return size_ == 0; }
+    [[nodiscard]] std::size_t size() const noexcept {
+        return size_;
+    }
+
+    [[nodiscard]] bool empty() const noexcept {
+        return size_ == 0;
+    }
 
 private:
     void append(std::string_view bytes) noexcept;

@@ -5,7 +5,10 @@
 int main() {
     try {
         TCPServer server(5555);
-        if (!server.bindSocket() || !server.listenSocket()) return 1;
+
+        if (!server.bindSocket() || !server.listenSocket()) {
+            return 1;
+        }
 
         ServerLoop loop(server);
         loop.run();

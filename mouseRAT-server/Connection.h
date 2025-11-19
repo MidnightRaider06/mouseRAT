@@ -37,24 +37,41 @@ struct Connection {
 
     [[nodiscard]] std::optional<Clock::time_point> nextDeadline() const noexcept {
         std::optional<Clock::time_point> deadline;
-        if (!helloReceived) deadline = acceptedAt + std::chrono::seconds(5);
+
+        if (!helloReceived) {
+            deadline = acceptedAt + std::chrono::seconds(5);
+        }
+
         if (frameStarted) {
             const auto frameDeadline = *frameStarted + std::chrono::seconds(30);
-            if (!deadline || frameDeadline < *deadline) deadline = frameDeadline;
+
+            if (!deadline || frameDeadline < *deadline) {
+                deadline = frameDeadline;
+            }
         }
+
         if (requestDeadline && (!deadline || *requestDeadline < *deadline)) {
             deadline = requestDeadline;
         }
-        if (pongDeadline && (!deadline || *pongDeadline < *deadline)) deadline = pongDeadline;
+
+        if (pongDeadline && (!deadline || *pongDeadline < *deadline)) {
+            deadline = pongDeadline;
+        }
+
         return deadline;
     }
 
     [[nodiscard]] std::optional<Clock::time_point> nextWakeup() const noexcept {
         auto deadline = nextDeadline();
+
         if (helloReceived && !pongDeadline) {
             const auto pingAt = lastFrameAt + std::chrono::seconds(10);
-            if (!deadline || pingAt < *deadline) deadline = pingAt;
+
+            if (!deadline || pingAt < *deadline) {
+                deadline = pingAt;
+            }
         }
+
         return deadline;
     }
 };
