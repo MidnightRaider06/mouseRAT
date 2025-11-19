@@ -1,9 +1,11 @@
-SERVER_FILES = main.cpp TCPServer.cpp ServerLoop.cpp Protocol.cpp FrameDecoder.cpp OutboundQueue.cpp RequestTracker.cpp DiskWorker.cpp ScreenshotStore.cpp ScreenshotTransfers.cpp
+SERVER_FILES = $(addprefix src/, main.cpp TCPServer.cpp ServerLoop.cpp Protocol.cpp FrameDecoder.cpp OutboundQueue.cpp RequestTracker.cpp DiskWorker.cpp ScreenshotStore.cpp ScreenshotTransfers.cpp)
+HEADERS = $(wildcard include/*.h)
 
 CC = g++
+CPPFLAGS = -Iinclude
 CFLAGS = -std=c++17 -Wall -Wextra -Wpedantic -g -pthread
 
-OUTPUT = server
+OUTPUT = build/server
 
 .PHONY: default build run clean
 
@@ -14,8 +16,9 @@ run: build
 
 build: $(OUTPUT)
 
-$(OUTPUT): $(SERVER_FILES) TCPServer.h UniqueFd.h Connection.h ServerLoop.h Protocol.h FrameDecoder.h OutboundQueue.h RequestTracker.h DiskWorker.h ScreenshotStore.h ScreenshotTransfers.h
-	$(CC) $(CFLAGS) $(SERVER_FILES) -o $(OUTPUT)
+$(OUTPUT): $(SERVER_FILES) $(HEADERS) Makefile
+	mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(SERVER_FILES) -o $(OUTPUT)
 
 clean:
 	rm -f $(OUTPUT)

@@ -7,7 +7,7 @@ import subprocess
 import sys
 import time
 
-SERVER = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path(__file__).resolve().parents[1] / 'server.exe'
+SERVER = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path(__file__).resolve().parents[1] / 'build' / 'server'
 HEADER = struct.Struct('!4sBBHII')
 
 
