@@ -1,10 +1,11 @@
 # Binary protocol v1
 
-Status: implementation contract for upcoming server and Windows client changes.
-Header encoding and structural validation exist in `Protocol.h` and `Protocol.cpp`,
-with incremental frame assembly in `FrameDecoder.h` and `FrameDecoder.cpp`. Both
-running endpoints still use the legacy text protocol. Switching requires updating
-both endpoints, with no text fallback.
+Status: target contract. The server now implements binary command exchange, HELLO/
+HELLO_ACK, incremental frame assembly, request tracking, queued writes, UTF-8/ERROR
+code validation, bidirectional heartbeats, and HELLO/frame/request/heartbeat deadlines.
+Screenshot requests now stream through a bounded disk worker to PNG/BMP files,
+with mock-client integration coverage. The unchanged Windows client still speaks the
+legacy text protocol and is incompatible. There is no text fallback.
 
 ## Frame header
 
@@ -55,6 +56,9 @@ encoded file including its headers. IMAGE_DATA carries raw file bytes, not base6
 For screenshots COMPLETE must contain zero. ERROR codes are `1` unsupported request,
 `2` execution failure, `3` capture failure, and `4` resource limit exceeded.
 Diagnostic text is for display, never for machine decisions.
+COMMAND and ERROR text must use valid UTF-8 encodings of Unicode scalar values.
+Reject truncated, overlong, surrogate, and out-of-range encodings. Unknown ERROR
+codes are invalid in v1. Text lengths count encoded bytes, not characters.
 
 ## Session and request state
 
@@ -75,7 +79,11 @@ Diagnostic text is for display, never for machine decisions.
 6. PING and PONG can appear between frames after the handshake, including during
    an active request. Keep at most one unanswered PING per direction. Send one
    after ten seconds without receiving a frame, and close if its matching PONG
-   has not arrived within thirty seconds of sending it.
+   has not arrived within thirty seconds of successfully queueing it. This reply
+   budget includes local send backpressure. Only the matching PONG clears it.
+   Unsolicited, duplicate, or mismatched PONG closes the session. A nonce must not
+   be reused within a connection. Failure to queue a required PING/PONG closes
+   that connection rather than creating an unbounded control-message retry queue.
 
 ## Limits, backpressure, and failure
 
@@ -106,11 +114,14 @@ Diagnostic text is for display, never for machine decisions.
 - Generate image filenames on the server, with no remote-supplied paths. Stream to
   a temporary file and publish it only after COMPLETE, exact byte-count checks,
   expected image-signature validation, and successful file writes. ERROR, storage
-  failure, or disconnect removes the temporary file. Storage failure closes the
-  affected connection. COMPLETE alone does not establish local persistence.
+  failure, or disconnect before Commit admission cancels temporary storage. After
+  valid COMPLETE and successful local Commit admission, saving may finish despite
+  subsequent disconnect. Storage failure closes the affected connection. COMPLETE
+  alone does not establish local persistence. Failed cleanup retains capacity until
+  shutdown. New requests for that client wait for storage retirement.
 
-Framing provides neither authentication nor encryption. A future TLS layer can
-carry the same frame bytes. No custom encryption is defined here.
+Framing provides neither authentication nor encryption. Transport security is
+deferred from the current implementation scope. No custom encryption is defined.
 
 ## Examples
 
