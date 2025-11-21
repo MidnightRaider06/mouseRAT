@@ -12,11 +12,46 @@ struct Header {
     std::uint32_t requestId;
 };
 
+inline void validateHeader(const Header& header) {
+    struct Rule {
+        std::uint8_t type;
+        std::uint32_t minimum, maximum;
+        bool control;
+    };
+    constexpr Rule rules[]{
+        { 0x01, 0, 0, true },       // HELLO
+        { 0x02, 0, 0, true },       // HELLO_ACK
+        { 0x10, 1, 4096, false },   // COMMAND
+        { 0x11, 2, 65536, false },  // OUTPUT
+        { 0x12, 4, 4, false },      // COMPLETE
+        { 0x20, 0, 0, false },      // SCREENSHOT
+        { 0x21, 12, 12, false },    // IMAGE_BEGIN
+        { 0x22, 1, 65536, false },  // IMAGE_DATA
+        { 0x30, 8, 8, true },       // PING
+        { 0x31, 8, 8, true },       // PONG
+        { 0x7f, 4, 1028, false }    // ERROR
+    };
+
+    for (const auto& rule : rules) {
+        if (header.type == rule.type) {
+            if (header.payloadLength < rule.minimum || header.payloadLength > rule.maximum) {
+                throw std::invalid_argument("Invalid payload length for message type");
+            }
+
+            if ((header.requestId == 0) != rule.control) {
+                throw std::invalid_argument("Invalid request ID for message type");
+            }
+
+            return;
+        }
+    }
+
+    throw std::invalid_argument("Unknown message type");
+}
+
 inline std::array<std::uint8_t, 16> encodeHeader(std::uint8_t type,
     std::uint32_t payloadLength, std::uint32_t requestId) {
-    if (payloadLength > 65536) {
-        throw std::invalid_argument("Payload exceeds the v1 frame limit");
-    }
+    validateHeader({ type, payloadLength, requestId });
 
     std::array<std::uint8_t, 16> header{ 'M', 'R', 'A', 'T', 1, type, 0, 0 };
     for (unsigned index = 0; index < 4; ++index) {
@@ -43,9 +78,7 @@ inline Header decodeHeader(const std::array<std::uint8_t, 16>& bytes) {
         header.requestId = (header.requestId << 8) | bytes[12 + index];
     }
 
-    if (header.payloadLength > 65536) {
-        throw std::invalid_argument("Payload exceeds the v1 frame limit");
-    }
+    validateHeader(header);
 
     return header;
 }

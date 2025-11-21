@@ -36,10 +36,38 @@ int main() {
     const auto hello = protocol::decodeHeader(protocol::encodeHeader(0x01, 0, 0));
     assert(hello.type == 0x01 && hello.payloadLength == 0 && hello.requestId == 0);
 
-    for (const unsigned index : { 0u, 1u, 2u, 3u, 4u, 6u, 7u }) {
+    for (const unsigned index : { 0u, 1u, 2u, 3u, 4u, 5u, 6u, 7u }) {
         auto invalid = command;
         invalid[index] ^= 0xff;
         expectInvalidHeader(invalid);
+    }
+
+    struct Bounds {
+        std::uint8_t type;
+        std::uint32_t minimum, maximum, requestId;
+    };
+    const Bounds bounds[]{
+        { 0x01, 0, 0, 0 }, { 0x02, 0, 0, 0 }, { 0x10, 1, 4096, 1 },
+        { 0x11, 2, 65536, 1 }, { 0x12, 4, 4, 1 }, { 0x20, 0, 0, 1 },
+        { 0x21, 12, 12, 1 }, { 0x22, 1, 65536, 1 }, { 0x30, 8, 8, 0 },
+        { 0x31, 8, 8, 0 }, { 0x7f, 4, 1028, 1 }
+    };
+    for (const auto& bound : bounds) {
+        for (const auto length : { bound.minimum, bound.maximum }) {
+            auto bytes = protocol::encodeHeader(bound.type, length, bound.requestId);
+            assert(protocol::decodeHeader(bytes).payloadLength == length);
+            bytes[15] = bound.requestId == 0 ? 1 : 0;
+            expectInvalidHeader(bytes);
+        }
+
+        for (const auto length : { bound.minimum - 1, bound.maximum + 1 }) {
+            auto bytes = protocol::encodeHeader(bound.type, bound.minimum, bound.requestId);
+            for (unsigned index = 0; index < 4; ++index) {
+                bytes[8 + index] = static_cast<std::uint8_t>(length >> (24 - index * 8));
+            }
+
+            expectInvalidHeader(bytes);
+        }
     }
 
     auto oversized = maximum;
