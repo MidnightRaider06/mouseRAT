@@ -17,6 +17,9 @@ struct FrameView {
 
 class FrameAssembler {
 public:
+    explicit FrameAssembler(Direction direction = Direction::FromServer) : headers_(direction) {
+    }
+
     std::optional<FrameView> consume(std::string_view input, std::size_t& consumed) {
         consumed = 0;
         if (!header_) {

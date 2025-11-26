@@ -8,13 +8,24 @@ int main() {
     payload[1] = static_cast<char>(0xff);
     payload.replace(32768, 4, "MRAT");
     const auto image = protocol::encodeHeader(0x22, 65536, 7);
-    const auto ack = protocol::encodeHeader(0x02, 0, 0);
+    const auto hello = protocol::encodeHeader(0x01, 0, 0);
     std::string wire(reinterpret_cast<const char*>(image.data()), image.size());
     wire += payload;
-    wire.append(reinterpret_cast<const char*>(ack.data()), ack.size());
+    wire.append(reinterpret_cast<const char*>(hello.data()), hello.size());
+
+    protocol::FrameAssembler receiver;
+    std::size_t rejectedBytes;
+    bool rejected = false;
+    try {
+        receiver.consume(wire, rejectedBytes);
+    } catch (const std::invalid_argument&) {
+        rejected = true;
+    }
+
+    assert(rejected && rejectedBytes == 16 && !receiver.hasPartialFrame());
 
     for (const std::size_t chunk : { 1u, 2u, 15u, 16u, 17u, 4096u, 65552u, 65568u }) {
-        protocol::FrameAssembler assembler;
+        protocol::FrameAssembler assembler(protocol::Direction::FromClient);
         unsigned delivered = 0;
         std::size_t offset = 0;
         while (offset < wire.size()) {
@@ -27,7 +38,7 @@ int main() {
                 offset += consumed;
                 if (frame) {
                     assert(delivered < 2);
-                    assert(frame->header.type == (delivered == 0 ? 0x22 : 0x02));
+                    assert(frame->header.type == (delivered == 0 ? 0x22 : 0x01));
                     assert(frame->header.requestId == (delivered == 0 ? 7u : 0u));
                     assert(frame->payload == (delivered == 0 ? std::string_view(payload) : ""));
                     ++delivered;

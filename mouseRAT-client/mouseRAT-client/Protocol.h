@@ -6,6 +6,8 @@
 
 namespace protocol {
 
+enum class Direction { FromServer, FromClient };
+
 struct Header {
     std::uint8_t type;
     std::uint32_t payloadLength;

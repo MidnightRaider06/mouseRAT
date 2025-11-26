@@ -93,14 +93,41 @@ int main() {
     struct Bounds {
         std::uint8_t type;
         std::uint32_t minimum, maximum, requestId;
+        bool fromServer;
     };
     const Bounds bounds[]{
-        { 0x01, 0, 0, 0 }, { 0x02, 0, 0, 0 }, { 0x10, 1, 4096, 1 },
-        { 0x11, 2, 65536, 1 }, { 0x12, 4, 4, 1 }, { 0x20, 0, 0, 1 },
-        { 0x21, 12, 12, 1 }, { 0x22, 1, 65536, 1 }, { 0x30, 8, 8, 0 },
-        { 0x31, 8, 8, 0 }, { 0x7f, 4, 1028, 1 }
+        { 0x01, 0, 0, 0, false }, { 0x02, 0, 0, 0, true }, { 0x10, 1, 4096, 1, true },
+        { 0x11, 2, 65536, 1, false }, { 0x12, 4, 4, 1, false }, { 0x20, 0, 0, 1, true },
+        { 0x21, 12, 12, 1, false }, { 0x22, 1, 65536, 1, false }, { 0x30, 8, 8, 0, true },
+        { 0x31, 8, 8, 0, true }, { 0x7f, 4, 1028, 1, false }
     };
     for (const auto& bound : bounds) {
+        for (const auto direction : { protocol::Direction::FromServer, protocol::Direction::FromClient }) {
+            protocol::HeaderAssembler assembler(direction);
+            const auto bytes = protocol::encodeHeader(bound.type, bound.minimum, bound.requestId);
+            std::size_t consumed;
+            bool accepted = false;
+            try {
+                accepted = assembler.consume(
+                    { reinterpret_cast<const char*>(bytes.data()), bytes.size() }, consumed).has_value();
+            } catch (const std::invalid_argument&) {
+            }
+
+            const bool expected = bound.type == 0x30 || bound.type == 0x31
+                || ((direction == protocol::Direction::FromServer) == bound.fromServer);
+            assert(accepted == expected && consumed == 16);
+            if (!accepted) {
+                bool failed = false;
+                try {
+                    assembler.consume({}, consumed);
+                } catch (const std::logic_error&) {
+                    failed = true;
+                }
+
+                assert(failed && consumed == 0);
+            }
+        }
+
         for (const auto length : { bound.minimum, bound.maximum }) {
             auto bytes = protocol::encodeHeader(bound.type, length, bound.requestId);
             assert(protocol::decodeHeader(bytes).payloadLength == length);
