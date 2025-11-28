@@ -24,6 +24,9 @@
     <ClCompile Include="CommandExecutor.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="Protocol.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="CommandExecutor.h">
@@ -44,6 +47,9 @@
       <Filter>Tests</Filter>
     </None>
     <None Include="..\tests\frame_test.cpp">
+      <Filter>Tests</Filter>
+    </None>
+    <None Include="..\tests\command_text_test.cpp">
       <Filter>Tests</Filter>
     </None>
   </ItemGroup>

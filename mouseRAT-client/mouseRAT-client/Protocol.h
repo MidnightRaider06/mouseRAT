@@ -3,6 +3,7 @@
 #include <array>
 #include <cstdint>
 #include <stdexcept>
+#include <string_view>
 
 namespace protocol {
 
@@ -13,6 +14,8 @@ struct Header {
     std::uint32_t payloadLength;
     std::uint32_t requestId;
 };
+
+bool isValidCommandText(std::string_view text);
 
 inline void validateHeader(const Header& header) {
     struct Rule {

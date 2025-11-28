@@ -20,6 +20,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="CommandExecutor.cpp" />
+    <ClCompile Include="Protocol.cpp" />
     <ClCompile Include="main.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -31,6 +32,7 @@
   <ItemGroup>
     <None Include="..\tests\header_test.cpp" />
     <None Include="..\tests\frame_test.cpp" />
+    <None Include="..\tests\command_text_test.cpp" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>17.0</VCProjectVersion>

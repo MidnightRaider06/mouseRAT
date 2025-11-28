@@ -1,6 +1,7 @@
 #pragma once
 
 #include "HeaderAssembler.h"
+#include "Protocol.h"
 
 #include <algorithm>
 #include <array>
@@ -22,6 +23,10 @@ public:
 
     std::optional<FrameView> consume(std::string_view input, std::size_t& consumed) {
         consumed = 0;
+        if (failed_) {
+            throw std::logic_error("Frame assembler belongs to a failed session");
+        }
+
         if (!header_) {
             header_ = headers_.consume(input, consumed);
             if (!header_) {
@@ -41,13 +46,18 @@ public:
         }
 
         const FrameView frame{ *header_, { payload_.data(), used_ } };
+        if (frame.header.type == 0x10 && !isValidCommandText(frame.payload)) {
+            failed_ = true;
+            throw std::invalid_argument("Invalid COMMAND text");
+        }
+
         header_.reset();
         used_ = 0;
         return frame;
     }
 
     bool hasPartialFrame() const {
-        return header_.has_value() || headers_.hasPartialHeader();
+        return !failed_ && (header_.has_value() || headers_.hasPartialHeader());
     }
 
 private:
@@ -55,6 +65,7 @@ private:
     std::optional<Header> header_;
     std::array<char, 65536> payload_{};
     std::size_t used_ = 0;
+    bool failed_ = false;
 };
 
 }
