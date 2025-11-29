@@ -1,6 +1,7 @@
 #include "OutboundQueue.h"
 
 #include <algorithm>
+#include <system_error>
 
 namespace protocol {
 namespace {
@@ -78,6 +79,30 @@ void OutboundQueue::advance(std::size_t sent) {
     if (empty()) {
         head_ = 0;
     }
+}
+
+std::size_t OutboundQueue::sendTo(SOCKET socket) {
+    const auto bytes = pending();
+    if (bytes.empty()) {
+        return 0;
+    }
+
+    const auto sent = send(socket, bytes.data(), static_cast<int>(bytes.size()), 0);
+    if (sent == SOCKET_ERROR) {
+        const auto error = WSAGetLastError();
+        if (error == WSAEWOULDBLOCK) {
+            return 0;
+        }
+
+        throw std::system_error(error, std::system_category(), "send");
+    }
+
+    if (sent == 0) {
+        throw std::runtime_error("Socket made no send progress");
+    }
+
+    advance(static_cast<std::size_t>(sent));
+    return static_cast<std::size_t>(sent);
 }
 
 }

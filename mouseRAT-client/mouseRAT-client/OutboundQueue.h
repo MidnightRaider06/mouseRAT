@@ -1,5 +1,7 @@
 #pragma once
 
+#include <WinSock2.h>
+
 #include "Protocol.h"
 
 #include <array>
@@ -17,6 +19,8 @@ public:
     // Borrows queue storage until the next mutation
     [[nodiscard]] std::string_view pending() const;
     void advance(std::size_t sent);
+    // Requires a nonblocking socket owned by the network thread
+    [[nodiscard]] std::size_t sendTo(SOCKET socket);
 
     [[nodiscard]] std::size_t size() const {
         return size_;
