@@ -16,6 +16,8 @@ struct Header {
 };
 
 bool isValidCommandText(std::string_view text);
+bool isValidUtf8(std::string_view text);
+void validateDirection(const Header& header, Direction direction);
 
 inline void validateHeader(const Header& header) {
     struct Rule {

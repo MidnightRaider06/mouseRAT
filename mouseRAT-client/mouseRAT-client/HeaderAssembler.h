@@ -33,11 +33,7 @@ public:
 
         try {
             const auto header = decodeHeader(bytes_);
-            const bool bidirectional = header.type == 0x30 || header.type == 0x31;
-            const bool fromServer = header.type == 0x02 || header.type == 0x10 || header.type == 0x20;
-            if (!bidirectional && ((direction_ == Direction::FromServer) != fromServer)) {
-                throw std::invalid_argument("Invalid message direction");
-            }
+            validateDirection(header, direction_);
 
             used_ = 0;
             return header;
