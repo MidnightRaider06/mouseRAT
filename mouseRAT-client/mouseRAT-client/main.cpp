@@ -6,6 +6,7 @@
 #include <stdexcept>
 #include <system_error>
 #include <string>
+#include <limits>
 #include "FrameAssembler.h"
 #include "Handshake.h"
 
@@ -16,9 +17,20 @@ void receiveRequests(SOCKET socket) {
     protocol::FrameAssembler decoder;
     protocol::OutboundQueue outbound;
     std::optional<Clock::time_point> frameStarted;
+    std::optional<Clock::time_point> pongDeadline;
+    auto lastFrame = Clock::now();
     Clock::time_point requestStarted{};
+    std::size_t terminalRemaining = 0, pongRemaining = 0;
+    std::uint64_t pingSequence = 0;
+    std::array<char, 8> pingNonce{};
     std::uint32_t lastRequest = 0;
     std::array<char, 4096> input{};
+
+    const auto sendPending = [&] {
+        const auto sent = outbound.sendTo(socket);
+        terminalRemaining -= (std::min)(terminalRemaining, sent);
+        pongRemaining -= (std::min)(pongRemaining, sent);
+    };
 
     while (true) {
         const auto checkDeadlines = [&] {
@@ -27,8 +39,29 @@ void receiveRequests(SOCKET socket) {
                 throw std::runtime_error("Frame timeout");
             }
 
-            if (!outbound.empty() && now >= requestStarted + std::chrono::minutes(5)) {
+            if (terminalRemaining != 0 && now >= requestStarted + std::chrono::minutes(5)) {
                 throw std::runtime_error("Request response timeout");
+            }
+
+            if (pongDeadline && now >= *pongDeadline) {
+                throw std::runtime_error("Heartbeat timeout");
+            }
+
+            if (!pongDeadline && now >= lastFrame + std::chrono::seconds(10)) {
+                if (pingSequence == (std::numeric_limits<std::uint64_t>::max)()) {
+                    throw std::runtime_error("Heartbeat nonce space exhausted");
+                }
+
+                ++pingSequence;
+                for (std::size_t index = 0; index < pingNonce.size(); ++index) {
+                    pingNonce[index] = static_cast<char>(pingSequence >> (56 - 8 * index));
+                }
+
+                if (!outbound.enqueue({ 0x30, 8, 0 }, { pingNonce.data(), pingNonce.size() })) {
+                    throw std::runtime_error("Heartbeat queue is full");
+                }
+
+                pongDeadline = Clock::now() + std::chrono::seconds(30);
             }
         };
         checkDeadlines();
@@ -47,7 +80,7 @@ void receiveRequests(SOCKET socket) {
         checkDeadlines();
         if (!FD_ISSET(socket, &readable)) {
             if (FD_ISSET(socket, &writable)) {
-                (void)outbound.sendTo(socket);
+                sendPending();
             }
 
             continue;
@@ -87,11 +120,34 @@ void receiveRequests(SOCKET socket) {
             }
 
             frameStarted.reset();
+            lastFrame = Clock::now();
+            if (frame->header.type == 0x30) {
+                if (pongRemaining != 0) {
+                    throw std::invalid_argument("Overlapping PING messages");
+                }
+
+                if (!outbound.enqueue({ 0x31, 8, 0 }, frame->payload)) {
+                    throw std::runtime_error("Heartbeat queue is full");
+                }
+
+                pongRemaining = outbound.size();
+                continue;
+            }
+
+            if (frame->header.type == 0x31) {
+                if (!pongDeadline || frame->payload != std::string_view(pingNonce.data(), pingNonce.size())) {
+                    throw std::invalid_argument("Unsolicited or mismatched PONG");
+                }
+
+                pongDeadline.reset();
+                continue;
+            }
+
             if (frame->header.type != 0x10 && frame->header.type != 0x20) {
                 throw std::invalid_argument("Unexpected session message");
             }
 
-            if (!outbound.empty() || frame->header.requestId != lastRequest + 1) {
+            if (terminalRemaining != 0 || frame->header.requestId != lastRequest + 1) {
                 throw std::invalid_argument("Overlapping request or invalid request ID sequence");
             }
 
@@ -101,11 +157,12 @@ void receiveRequests(SOCKET socket) {
                 throw std::runtime_error("Outbound queue is full");
             }
 
+            terminalRemaining = outbound.size();
             requestStarted = Clock::now();
         }
 
         if (FD_ISSET(socket, &writable)) {
-            (void)outbound.sendTo(socket);
+            sendPending();
         }
     }
 }
