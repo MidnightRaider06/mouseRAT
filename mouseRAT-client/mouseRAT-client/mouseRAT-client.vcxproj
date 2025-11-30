@@ -19,7 +19,9 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="CommandExecutor.cpp" />
+    <ClCompile Include="CommandExecutor.cpp">
+      <ExcludedFromBuild>true</ExcludedFromBuild>
+    </ClCompile>
     <ClCompile Include="Protocol.cpp" />
     <ClCompile Include="OutboundQueue.cpp" />
     <ClCompile Include="main.cpp" />
