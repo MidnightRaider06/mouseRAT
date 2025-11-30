@@ -47,6 +47,9 @@
     <ClInclude Include="FrameAssembler.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="Handshake.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="..\tests\header_test.cpp">
