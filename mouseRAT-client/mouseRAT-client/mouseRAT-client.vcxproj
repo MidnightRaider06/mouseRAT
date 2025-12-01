@@ -33,6 +33,7 @@
     <ClInclude Include="HeaderAssembler.h" />
     <ClInclude Include="FrameAssembler.h" />
     <ClInclude Include="Handshake.h" />
+    <ClInclude Include="PersistentShell.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="..\tests\header_test.cpp" />
