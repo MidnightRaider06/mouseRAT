@@ -30,6 +30,9 @@
     <ClCompile Include="OutboundQueue.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="PersistentShell.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="CommandExecutor.h">
@@ -55,6 +58,7 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
+    <None Include="..\README.md" />
     <None Include="..\tests\header_test.cpp">
       <Filter>Tests</Filter>
     </None>
@@ -65,6 +69,9 @@
       <Filter>Tests</Filter>
     </None>
     <None Include="..\tests\outbound_queue_test.cpp">
+      <Filter>Tests</Filter>
+    </None>
+    <None Include="..\tests\shell_io_test.cpp">
       <Filter>Tests</Filter>
     </None>
   </ItemGroup>

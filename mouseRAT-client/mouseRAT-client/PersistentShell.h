@@ -2,51 +2,30 @@
 
 #include <Windows.h>
 
-#include <array>
+#include <cstddef>
+#include <future>
 #include <memory>
+#include <optional>
 #include <string>
-#include <system_error>
+#include <string_view>
 
 class PersistentShell {
 public:
-    PersistentShell() {
-        job_.reset(CreateJobObjectW(nullptr, nullptr));
-        if (!job_) {
-            fail("CreateJobObjectW");
-        }
+    static constexpr std::size_t maxInputBytes = 8192;
+    static constexpr std::size_t maxOutputBytes = 65535;
 
-        JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
-        limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-        if (!SetInformationJobObject(job_.get(), JobObjectExtendedLimitInformation, &limits, sizeof(limits))) {
-            fail("SetInformationJobObject");
-        }
+    PersistentShell();
+    ~PersistentShell();
+    PersistentShell(PersistentShell&&) noexcept = default;
+    PersistentShell& operator=(PersistentShell&&) = delete;
+    PersistentShell(const PersistentShell&) = delete;
+    PersistentShell& operator=(const PersistentShell&) = delete;
 
-        std::array<wchar_t, MAX_PATH> directory{};
-        const auto length = GetSystemDirectoryW(directory.data(), static_cast<UINT>(directory.size()));
-        if (length == 0 || length >= directory.size()) {
-            fail("GetSystemDirectoryW", length == 0 ? GetLastError() : ERROR_INSUFFICIENT_BUFFER);
-        }
-
-        const auto application = std::wstring(directory.data(), length) + L"\\cmd.exe";
-        wchar_t command[] = L"cmd.exe /D /Q";
-        STARTUPINFOW startup{};
-        startup.cb = sizeof(startup);
-        PROCESS_INFORMATION child{};
-        if (!CreateProcessW(application.c_str(), command, nullptr, nullptr, FALSE,
-            CREATE_SUSPENDED | CREATE_NEW_CONSOLE, nullptr, nullptr, &startup, &child)) {
-            fail("CreateProcessW");
-        }
-
-        process_.reset(child.hProcess);
-        Handle thread(child.hThread, CloseHandle);
-        if (!AssignProcessToJobObject(job_.get(), process_.get())) {
-            fail("AssignProcessToJobObject");
-        }
-
-        if (ResumeThread(thread.get()) == static_cast<DWORD>(-1)) {
-            fail("ResumeThread");
-        }
-    }
+    // Prepared pipe bytes, completion only confirms delivery
+    void writeInput(std::string_view bytes);
+    [[nodiscard]] bool inputPending();
+    // Empty means no bytes ready, nullopt means all output writers have closed
+    [[nodiscard]] std::optional<std::string> readOutput(std::size_t maximum = maxOutputBytes);
 
     // Borrows the process handle
     [[nodiscard]] HANDLE nativeHandle() const noexcept {
@@ -54,16 +33,18 @@ public:
     }
 
 private:
-    [[noreturn]] static void fail(const char* operation, DWORD error = GetLastError()) {
-        throw std::system_error(static_cast<int>(error), std::system_category(), operation);
-    }
-
-    static void closeProcess(HANDLE process) noexcept {
-        TerminateProcess(process, ERROR_CANCELLED);
-        CloseHandle(process);
-    }
-
+    struct OutputState;
     using Handle = std::unique_ptr<void, decltype(&CloseHandle)>;
+
+    [[noreturn]] static void fail(const char* operation, DWORD error = GetLastError());
+    static void closeProcess(HANDLE process) noexcept;
+    static void createPipe(Handle& parent, Handle& child, bool parentWrites);
+
     Handle job_{ nullptr, CloseHandle };
     std::unique_ptr<void, decltype(&closeProcess)> process_{ nullptr, closeProcess };
+    Handle input_{ nullptr, CloseHandle };
+    Handle output_{ nullptr, CloseHandle };
+    std::shared_ptr<OutputState> outputState_;
+    std::future<void> inputTask_, outputTask_;
+    bool failed_ = false;
 };
