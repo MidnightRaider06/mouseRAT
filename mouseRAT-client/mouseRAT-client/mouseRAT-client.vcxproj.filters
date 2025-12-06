@@ -33,6 +33,9 @@
     <ClCompile Include="PersistentShell.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="ScreenshotHandler.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="CommandExecutor.h">
@@ -56,6 +59,9 @@
     <ClInclude Include="PersistentShell.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="ScreenshotHandler.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="..\README.md" />
@@ -72,6 +78,9 @@
       <Filter>Tests</Filter>
     </None>
     <None Include="..\tests\shell_io_test.cpp">
+      <Filter>Tests</Filter>
+    </None>
+    <None Include="..\tests\screenshot_session_test.py">
       <Filter>Tests</Filter>
     </None>
   </ItemGroup>

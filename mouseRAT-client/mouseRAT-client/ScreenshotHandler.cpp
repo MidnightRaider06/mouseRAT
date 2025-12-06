@@ -1,92 +1,113 @@
 #include "ScreenshotHandler.h"
 
-using namespace std;
+#include <Windows.h>
 
-HBITMAP ScreenshotHandler::captureScreenshot(void) {
-    int x1, y1, x2, y2, w, h;
+#include <cstdint>
+#include <cstring>
+#include <stdexcept>
+#include <system_error>
 
-    // get screen dimensions
-    x1 = GetSystemMetrics(SM_XVIRTUALSCREEN);
-    y1 = GetSystemMetrics(SM_YVIRTUALSCREEN);
-    x2 = GetSystemMetrics(SM_CXVIRTUALSCREEN);
-    y2 = GetSystemMetrics(SM_CYVIRTUALSCREEN);
-    w = x2 - x1;
-    h = y2 - y1;
+namespace {
 
-    // copy screen to bitmap
-    HDC     hScreen = GetDC(NULL);
-    HDC     hDC = CreateCompatibleDC(hScreen);
-    HBITMAP hBitmap = CreateCompatibleBitmap(hScreen, w, h);
-    HGDIOBJ old_obj = SelectObject(hDC, hBitmap);
-    BOOL    bRet = BitBlt(hDC, 0, 0, w, h, hScreen, x1, y1, SRCCOPY);
+struct CaptureResources {
+    DPI_AWARENESS_CONTEXT previousDpi = nullptr;
+    HDC screen = nullptr, memory = nullptr;
+    HBITMAP bitmap = nullptr;
+    HGDIOBJ previousBitmap = nullptr;
 
-    // save bitmap to clipboard
-    OpenClipboard(NULL);
-    EmptyClipboard();
-    SetClipboardData(CF_BITMAP, hBitmap);
-    CloseClipboard();
+    ~CaptureResources() {
+        if (previousBitmap) {
+            SelectObject(memory, previousBitmap);
+        }
 
-    // clean up
-    SelectObject(hDC, old_obj);
-    DeleteDC(hDC);
-    ReleaseDC(NULL, hScreen);
-    DeleteObject(hBitmap);
+        if (bitmap) {
+            DeleteObject(bitmap);
+        }
+
+        if (memory) {
+            DeleteDC(memory);
+        }
+
+        if (screen) {
+            ReleaseDC(nullptr, screen);
+        }
+
+        if (previousDpi) {
+            SetThreadDpiAwarenessContext(previousDpi);
+        }
+    }
+};
+
 }
 
-string ScreenshotHandler::bitmapToString(HBITMAP hBitmap) {
-    if (hBitmap == NULL) {
-        return "";
+std::vector<char> ScreenshotHandler::captureBmp() {
+    CaptureResources capture;
+    capture.previousDpi = SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE);
+    if (!capture.previousDpi) {
+        throw std::runtime_error("Cannot establish screenshot DPI context");
     }
 
-    BITMAP bm;
-    if (!GetObject(hBitmap, sizeof(BITMAP), &bm)) {
-        std::cerr << "GetObject failed.\n";
-        return "";
+    const auto x = GetSystemMetrics(SM_XVIRTUALSCREEN);
+    const auto y = GetSystemMetrics(SM_YVIRTUALSCREEN);
+    const auto width = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+    const auto height = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+    if (width <= 0 || height <= 0) {
+        throw std::runtime_error("No virtual desktop is available");
     }
 
-    // Calculate the stride (row size aligned to 4 bytes)
-    int stride = ((bm.bmWidth * bm.bmBitsPixel + 31) / 32) * 4;
-    DWORD dwBmpSize = stride * bm.bmHeight;
-
-    // Setup BITMAPINFOHEADER
-    BITMAPINFOHEADER bi = { 0 };
-    bi.biSize = sizeof(BITMAPINFOHEADER);
-    bi.biWidth = bm.bmWidth;
-    bi.biHeight = bm.bmHeight; // positive for bottom-up DIB
-    bi.biPlanes = 1;
-    bi.biBitCount = bm.bmBitsPixel;
-    bi.biCompression = BI_RGB;
-    bi.biSizeImage = dwBmpSize;
-
-    // Buffer for pixel data
-    std::vector<unsigned char> buffer(dwBmpSize);
-
-    // Retrieve the actual bits
-    HDC hdc = GetDC(NULL);
-    if (!GetDIBits(hdc, hBitmap, 0, bm.bmHeight, buffer.data(), (BITMAPINFO*)&bi, DIB_RGB_COLORS)) {
-        cerr << "GetDIBits failed.\n";
-        ReleaseDC(NULL, hdc);
-        return "";
+    constexpr auto headerBytes = sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER);
+    const auto stride = (std::uint64_t(width) * 3 + 3) & ~std::uint64_t(3);
+    const auto pixelBytes = stride * std::uint64_t(height);
+    if (pixelBytes > maxImageBytes - headerBytes) {
+        throw std::length_error("Screenshot exceeds the 32 MiB limit");
     }
-    ReleaseDC(NULL, hdc);
 
-    // Create BITMAPFILEHEADER
-    BITMAPFILEHEADER bf = { 0 };
-    bf.bfType = 0x4D42; // 'BM'
-    bf.bfSize = sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER) + dwBmpSize;
-    bf.bfOffBits = sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER);
+    capture.screen = GetDC(nullptr);
+    if (!capture.screen) {
+        throw std::runtime_error("Cannot acquire the desktop DC");
+    }
 
-    // Combine everything into one buffer
-    std::vector<unsigned char> fullBitmapData;
-    fullBitmapData.resize(bf.bfSize);
+    capture.memory = CreateCompatibleDC(capture.screen);
+    if (!capture.memory) {
+        throw std::runtime_error("Cannot create the capture DC");
+    }
 
-    memcpy(fullBitmapData.data(), &bf, sizeof(BITMAPFILEHEADER));
-    memcpy(fullBitmapData.data() + sizeof(BITMAPFILEHEADER), &bi, sizeof(BITMAPINFOHEADER));
-    memcpy(fullBitmapData.data() + sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER), buffer.data(), dwBmpSize);
+    BITMAPINFO info{};
+    info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    info.bmiHeader.biWidth = width;
+    info.bmiHeader.biHeight = height;
+    info.bmiHeader.biPlanes = 1;
+    info.bmiHeader.biBitCount = 24;
+    info.bmiHeader.biCompression = BI_RGB;
+    info.bmiHeader.biSizeImage = static_cast<DWORD>(pixelBytes);
+    void* pixels = nullptr;
+    capture.bitmap = CreateDIBSection(capture.screen, &info, DIB_RGB_COLORS, &pixels, nullptr, 0);
+    if (!capture.bitmap || !pixels) {
+        throw std::runtime_error("Cannot allocate the capture bitmap");
+    }
 
-    // Encode to Base64
-    //return base64_encode(fullBitmapData.data(), fullBitmapData.size());
+    const auto previous = SelectObject(capture.memory, capture.bitmap);
+    if (!previous || previous == HGDI_ERROR) {
+        throw std::runtime_error("Cannot select the capture bitmap");
+    }
 
-	// Return empty string for now until base64_encode is implemented
-    return "";
+    capture.previousBitmap = previous;
+    std::memset(pixels, 0, static_cast<std::size_t>(pixelBytes));
+    if (!BitBlt(capture.memory, 0, 0, width, height, capture.screen, x, y, SRCCOPY | CAPTUREBLT)) {
+        throw std::system_error(static_cast<int>(GetLastError()), std::system_category(), "BitBlt");
+    }
+
+    if (!GdiFlush()) {
+        throw std::runtime_error("Cannot flush captured pixels");
+    }
+
+    BITMAPFILEHEADER file{};
+    file.bfType = 0x4d42;
+    file.bfSize = static_cast<DWORD>(headerBytes + pixelBytes);
+    file.bfOffBits = static_cast<DWORD>(headerBytes);
+    std::vector<char> bytes(file.bfSize);
+    std::memcpy(bytes.data(), &file, sizeof(file));
+    std::memcpy(bytes.data() + sizeof(file), &info.bmiHeader, sizeof(info.bmiHeader));
+    std::memcpy(bytes.data() + headerBytes, pixels, static_cast<std::size_t>(pixelBytes));
+    return bytes;
 }

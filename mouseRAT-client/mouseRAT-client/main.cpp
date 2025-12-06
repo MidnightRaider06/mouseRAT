@@ -7,8 +7,10 @@
 #include <system_error>
 #include <string>
 #include <limits>
+#include <future>
 #include "FrameAssembler.h"
 #include "Handshake.h"
+#include "ScreenshotHandler.h"
 
 using namespace std;
 
@@ -19,7 +21,11 @@ void receiveRequests(SOCKET socket) {
     std::optional<Clock::time_point> frameStarted;
     std::optional<Clock::time_point> pongDeadline;
     auto lastFrame = Clock::now();
-    Clock::time_point requestStarted{};
+    std::optional<Clock::time_point> requestStarted;
+    std::future<std::vector<char>> capture;
+    std::vector<char> image;
+    std::size_t imageOffset = 0;
+    bool imageStarted = false;
     std::size_t terminalRemaining = 0, pongRemaining = 0;
     std::uint64_t pingSequence = 0;
     std::array<char, 8> pingNonce{};
@@ -28,8 +34,22 @@ void receiveRequests(SOCKET socket) {
 
     const auto sendPending = [&] {
         const auto sent = outbound.sendTo(socket);
-        terminalRemaining -= (std::min)(terminalRemaining, sent);
+        if (terminalRemaining != 0) {
+            terminalRemaining -= (std::min)(terminalRemaining, sent);
+            if (terminalRemaining == 0) {
+                requestStarted.reset();
+            }
+        }
         pongRemaining -= (std::min)(pongRemaining, sent);
+    };
+
+    const auto queueError = [&](char code, std::string_view diagnostic) {
+        const auto error = std::string(3, '\0') + code + std::string(diagnostic);
+        if (!outbound.enqueue({ 0x7f, static_cast<std::uint32_t>(error.size()), lastRequest }, error)) {
+            throw std::runtime_error("Outbound queue is full");
+        }
+
+        terminalRemaining = outbound.size();
     };
 
     while (true) {
@@ -39,7 +59,7 @@ void receiveRequests(SOCKET socket) {
                 throw std::runtime_error("Frame timeout");
             }
 
-            if (terminalRemaining != 0 && now >= requestStarted + std::chrono::minutes(5)) {
+            if (requestStarted && now >= *requestStarted + std::chrono::minutes(5)) {
                 throw std::runtime_error("Request response timeout");
             }
 
@@ -65,6 +85,47 @@ void receiveRequests(SOCKET socket) {
             }
         };
         checkDeadlines();
+        if (capture.valid() && capture.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+            try {
+                image = capture.get();
+            } catch (const std::length_error&) {
+                queueError(4, "Screenshot exceeds the 32 MiB limit");
+            } catch (const std::bad_alloc&) {
+                queueError(4, "Insufficient memory for screenshot");
+            } catch (const std::exception& error) {
+                cerr << "Screenshot capture failed: " << error.what() << '\n';
+                queueError(3, "Screenshot capture failed");
+            }
+        }
+
+        // Leave room for one PING and one PONG while image production pauses
+        constexpr std::size_t controlReserve = 48;
+        if (!image.empty() && !imageStarted && outbound.size() + 28 + controlReserve <= outbound.capacity) {
+            std::array<char, 12> metadata{};
+            for (std::size_t index = 0; index < 8; ++index) {
+                metadata[index] = static_cast<char>(std::uint64_t(image.size()) >> (56 - 8 * index));
+            }
+            metadata[11] = 2;
+            imageStarted = outbound.enqueue({ 0x21, 12, lastRequest }, { metadata.data(), metadata.size() });
+        }
+
+        if (imageStarted) {
+            const auto count = (std::min)(std::size_t(65536), image.size() - imageOffset);
+            if (count != 0 && outbound.size() + 16 + count + controlReserve <= outbound.capacity
+                && outbound.enqueue({ 0x22, static_cast<std::uint32_t>(count), lastRequest },
+                    { image.data() + imageOffset, count })) {
+                imageOffset += count;
+            }
+
+            if (imageOffset == image.size() && outbound.size() + 20 + controlReserve <= outbound.capacity
+                && outbound.enqueue({ 0x12, 4, lastRequest }, std::string(4, '\0'))) {
+                terminalRemaining = outbound.size();
+                image = std::vector<char>{};
+                imageOffset = 0;
+                imageStarted = false;
+            }
+        }
+
         fd_set readable{}, writable{};
         FD_SET(socket, &readable);
         if (!outbound.empty()) {
@@ -97,7 +158,7 @@ void receiveRequests(SOCKET socket) {
         }
 
         if (received == 0) {
-            if (decoder.hasPartialFrame() || !outbound.empty()) {
+            if (decoder.hasPartialFrame() || requestStarted || !outbound.empty()) {
                 throw std::runtime_error("Disconnected during an incomplete exchange");
             }
 
@@ -147,18 +208,22 @@ void receiveRequests(SOCKET socket) {
                 throw std::invalid_argument("Unexpected session message");
             }
 
-            if (terminalRemaining != 0 || frame->header.requestId != lastRequest + 1) {
+            if (requestStarted || frame->header.requestId != lastRequest + 1) {
                 throw std::invalid_argument("Overlapping request or invalid request ID sequence");
             }
 
             lastRequest = frame->header.requestId;
-            const std::string error = std::string(3, '\0') + "\1Request is not supported";
-            if (!outbound.enqueue({ 0x7f, static_cast<std::uint32_t>(error.size()), lastRequest }, error)) {
-                throw std::runtime_error("Outbound queue is full");
-            }
-
-            terminalRemaining = outbound.size();
             requestStarted = Clock::now();
+            if (frame->header.type == 0x20) {
+                cout << "Capturing screenshot for request " << lastRequest << '\n' << flush;
+                try {
+                    capture = std::async(std::launch::async, ScreenshotHandler::captureBmp);
+                } catch (const std::exception&) {
+                    queueError(4, "Cannot start screenshot capture");
+                }
+            } else {
+                queueError(1, "Request is not supported");
+            }
         }
 
         if (FD_ISSET(socket, &writable)) {
