@@ -19,12 +19,11 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="CommandExecutor.cpp">
-      <ExcludedFromBuild>true</ExcludedFromBuild>
-    </ClCompile>
+    <ClCompile Include="CommandExecutor.cpp" />
     <ClCompile Include="Protocol.cpp" />
     <ClCompile Include="OutboundQueue.cpp" />
     <ClCompile Include="PersistentShell.cpp" />
+    <ClCompile Include="CommandFiles.cpp" />
     <ClCompile Include="ScreenshotHandler.cpp" />
     <ClCompile Include="main.cpp" />
   </ItemGroup>
@@ -36,6 +35,7 @@
     <ClInclude Include="FrameAssembler.h" />
     <ClInclude Include="Handshake.h" />
     <ClInclude Include="PersistentShell.h" />
+    <ClInclude Include="CommandFiles.h" />
     <ClInclude Include="ScreenshotHandler.h" />
   </ItemGroup>
   <ItemGroup>
@@ -45,6 +45,7 @@
     <None Include="..\tests\command_text_test.cpp" />
     <None Include="..\tests\outbound_queue_test.cpp" />
     <None Include="..\tests\shell_io_test.cpp" />
+    <None Include="..\tests\command_execution_test.cpp" />
     <None Include="..\tests\screenshot_session_test.py" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
@@ -101,7 +102,7 @@
   <PropertyGroup Label="UserMacros" />
   <ItemDefinitionGroup>
     <Link>
-      <AdditionalDependencies>ws2_32.lib;gdi32.lib;user32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>ws2_32.lib;gdi32.lib;user32.lib;ole32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">

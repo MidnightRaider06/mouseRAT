@@ -18,7 +18,7 @@ struct PersistentShell::OutputState {
     DWORD error = ERROR_SUCCESS;
 };
 
-PersistentShell::PersistentShell() : outputState_(std::make_shared<OutputState>()) {
+PersistentShell::PersistentShell(const wchar_t* environment) : outputState_(std::make_shared<OutputState>()) {
     job_.reset(CreateJobObjectW(nullptr, nullptr));
     if (!job_) {
         fail("CreateJobObjectW");
@@ -60,7 +60,7 @@ PersistentShell::PersistentShell() : outputState_(std::make_shared<OutputState>(
     }
 
     const auto application = std::wstring(directory.data(), length) + L"\\cmd.exe";
-    wchar_t command[] = L"cmd.exe /D /Q /K \"chcp 65001>nul\"";
+    wchar_t command[] = L"cmd.exe /D /Q /E:ON /V:OFF /K \"chcp 65001>nul\"";
     STARTUPINFOEXW startup{};
     startup.StartupInfo.cb = sizeof(startup);
     startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
@@ -70,8 +70,8 @@ PersistentShell::PersistentShell() : outputState_(std::make_shared<OutputState>(
     startup.lpAttributeList = list;
     PROCESS_INFORMATION child{};
     if (!CreateProcessW(application.c_str(), command, nullptr, nullptr, TRUE,
-        CREATE_SUSPENDED | CREATE_NEW_CONSOLE | EXTENDED_STARTUPINFO_PRESENT,
-        nullptr, nullptr, &startup.StartupInfo, &child)) {
+        CREATE_SUSPENDED | CREATE_NEW_CONSOLE | EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT,
+        const_cast<wchar_t*>(environment), nullptr, &startup.StartupInfo, &child)) {
         fail("CreateProcessW");
     }
 

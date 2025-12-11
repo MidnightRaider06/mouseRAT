@@ -14,7 +14,7 @@ public:
     static constexpr std::size_t maxInputBytes = 8192;
     static constexpr std::size_t maxOutputBytes = 65535;
 
-    PersistentShell();
+    explicit PersistentShell(const wchar_t* environment = nullptr);
     ~PersistentShell();
     PersistentShell(PersistentShell&&) noexcept = default;
     PersistentShell& operator=(PersistentShell&&) = delete;

@@ -11,6 +11,7 @@
 #include "FrameAssembler.h"
 #include "Handshake.h"
 #include "ScreenshotHandler.h"
+#include "CommandExecutor.h"
 
 using namespace std;
 
@@ -233,6 +234,9 @@ void receiveRequests(SOCKET socket) {
 }
 
 int main(int argc, char* argv[]) {
+    if (argc > 1 && std::string_view(argv[1]) == "--report-command-result") {
+        return argc == 4 ? CommandExecutor::reportResult(argv[2], argv[3]) : 2;
+    }
 
     const char* SERVER_IP = argc > 1 ? argv[1] : "192.168.100.6";
 	const int SERVER_PORT = 5555;
