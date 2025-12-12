@@ -46,6 +46,7 @@
     <None Include="..\tests\outbound_queue_test.cpp" />
     <None Include="..\tests\shell_io_test.cpp" />
     <None Include="..\tests\command_execution_test.cpp" />
+    <None Include="..\tests\command_session_test.py" />
     <None Include="..\tests\screenshot_session_test.py" />
   </ItemGroup>
   <PropertyGroup Label="Globals">

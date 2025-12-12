@@ -24,6 +24,8 @@ void receiveRequests(SOCKET socket) {
     auto lastFrame = Clock::now();
     std::optional<Clock::time_point> requestStarted;
     std::future<std::vector<char>> capture;
+    std::unique_ptr<CommandExecutor> executor;
+    bool commandActive = false, closeAfterTerminal = false;
     std::vector<char> image;
     std::size_t imageOffset = 0;
     bool imageStarted = false;
@@ -53,7 +55,18 @@ void receiveRequests(SOCKET socket) {
         terminalRemaining = outbound.size();
     };
 
+    const auto failCommand = [&](char code, std::string_view diagnostic) {
+        executor.reset();
+        commandActive = false;
+        closeAfterTerminal = true;
+        queueError(code, diagnostic);
+    };
+
     while (true) {
+        if (closeAfterTerminal && terminalRemaining == 0) {
+            return;
+        }
+
         const auto checkDeadlines = [&] {
             const auto now = Clock::now();
             if (frameStarted && now >= *frameStarted + std::chrono::seconds(30)) {
@@ -99,8 +112,42 @@ void receiveRequests(SOCKET socket) {
             }
         }
 
-        // Leave room for one PING and one PONG while image production pauses
+        // Leave room for one PING and one PONG while producers pause
         constexpr std::size_t controlReserve = 48;
+        if (commandActive && outbound.size() + 65552 + controlReserve <= outbound.capacity) {
+            CommandExecutor::Update update;
+            try {
+                update = executor->poll();
+            } catch (const std::length_error&) {
+                failCommand(4, "Command output exceeds the 16 MiB limit");
+            } catch (const std::bad_alloc&) {
+                failCommand(4, "Insufficient memory for command");
+            } catch (const std::exception& error) {
+                cerr << "Command execution failed: " << error.what() << '\n';
+                failCommand(2, "Command execution failed");
+            }
+
+            if (!update.output.empty()) {
+                const auto output = std::string(1, '\0') + update.output;
+                if (!outbound.enqueue({ 0x11, static_cast<std::uint32_t>(output.size()), lastRequest }, output)) {
+                    throw std::runtime_error("Command output queue is full");
+                }
+            }
+
+            if (update.result) {
+                std::array<char, 4> result{};
+                for (std::size_t index = 0; index < result.size(); ++index) {
+                    result[index] = static_cast<char>(*update.result >> (24 - 8 * index));
+                }
+
+                if (!outbound.enqueue({ 0x12, 4, lastRequest }, { result.data(), result.size() })) {
+                    throw std::runtime_error("Command result queue is full");
+                }
+                terminalRemaining = outbound.size();
+                commandActive = false;
+            }
+        }
+
         if (!image.empty() && !imageStarted && outbound.size() + 28 + controlReserve <= outbound.capacity) {
             std::array<char, 12> metadata{};
             for (std::size_t index = 0; index < 8; ++index) {
@@ -133,7 +180,7 @@ void receiveRequests(SOCKET socket) {
             FD_SET(socket, &writable);
         }
 
-        timeval timeout{ 0, 100000 };
+        timeval timeout{ 0, commandActive ? 10000L : 100000L };
         if (select(0, &readable, &writable, nullptr, &timeout) == SOCKET_ERROR) {
             const auto error = WSAGetLastError();
             throw std::system_error(error, std::system_category(), "select");
@@ -223,7 +270,19 @@ void receiveRequests(SOCKET socket) {
                     queueError(4, "Cannot start screenshot capture");
                 }
             } else {
-                queueError(1, "Request is not supported");
+                cout << "Executing command for request " << lastRequest << '\n' << flush;
+                try {
+                    if (!executor) {
+                        executor = std::make_unique<CommandExecutor>();
+                    }
+                    executor->start(frame->payload);
+                    commandActive = true;
+                } catch (const std::bad_alloc&) {
+                    failCommand(4, "Insufficient memory to start command");
+                } catch (const std::exception& error) {
+                    cerr << "Cannot start command: " << error.what() << '\n';
+                    failCommand(2, "Cannot start command");
+                }
             }
         }
 

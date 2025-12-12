@@ -89,6 +89,9 @@
     <None Include="..\tests\command_execution_test.cpp">
       <Filter>Tests</Filter>
     </None>
+    <None Include="..\tests\command_session_test.py">
+      <Filter>Tests</Filter>
+    </None>
     <None Include="..\tests\screenshot_session_test.py">
       <Filter>Tests</Filter>
     </None>
