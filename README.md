@@ -1,50 +1,13 @@
-# 🐭 mouseRAT
+# mouseRAT
 
-## Overview
+A proof of concept of a simple application-layer protocol over TCP for shell commands and screenshots between user-controlled VMs.
 
-**mouseRAT** is a minimalist Remote Access Tool (RAT) developed for **personal educational purposes**, focusing on:
+Features:
 
-- **Network programming fundamentals**
-- **Command and Control (C2) development concepts**
-- **Computer Network Operations (CNO) tooling**
+- Binary message framing and multiple client connections
+- Nonblocking network I/O and bounded buffering
+- Background screenshot file writes
 
-This project is part of my personal learning journey in **security software development and offensive security engineering**.
+The Linux server is tested on an Ubuntu VM. The Windows client is tested on Windows 10.
 
----
-
-## ⚠️ Disclaimer
-
-> **This tool is created solely for educational purposes.**
-> - Do **not** deploy mouseRAT on any machine you do not own or have explicit authorization to test.
-> - Unauthorized use of this software against systems you do not control is illegal and unethical.
-> - The developer assumes **no responsibility** for any misuse or damage caused by this tool.
-
----
-
-## ✨ Features (Planned)
-
-- Reverse TCP connection from target to attacker
-- Basic command execution on the target
-- Cross-platform communication (Windows client ↔ Linux server)
-
----
-
-## 🎯 Target Environment
-
-- **Victim (Client)**
-  - **OS:** Windows 10
-  - **Language:** C++
-
-- **Attacker (Server)**
-  - **OS:** Linux (tested on Ubuntu)
-  - **Language:** C++
-
----
-
-## 🛑 Ethical Positioning
-
-This project is:
-
-- Designed for **personal education** to deepen my understanding of networking, sockets, and CNO tooling.
-- **Not intended for deployment** in production environments or offensive engagements (nor is it likely to bypass standard network defenses).
----
+This is a lab demonstration, not malware. It provides no stealth, persistence, or access-control bypass and is not designed to function as malware.
